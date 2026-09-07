@@ -5,6 +5,20 @@ This is the changelog/release notes for the `rust_xlsxwriter` crate.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Added
+
+- Added support for pivot tables via the `PivotTable` struct and the
+  `Worksheet::add_pivot_table()` method. See [Issue #53].
+
+  The pivot table definition is written to the file but not the summarized
+  values. The file is flagged with `refreshOnLoad` so that the application that
+  opens it, Excel or `LibreOffice`, calculates the summary from the source data.
+
+  [Issue #53]: https://github.com/jmcnamara/rust_xlsxwriter/issues/53
+
+
 ## [0.99.0] - 2026-08-23
 
 ### Changed

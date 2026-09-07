@@ -32,6 +32,11 @@ impl Relationship {
         }
     }
 
+    // Get the rId number that the next added relationship will get.
+    pub(crate) fn next_id(&self) -> u16 {
+        self.relationships.len() as u16 + 1
+    }
+
     // Add container relationship to xlsx .rels xml files.
     pub(crate) fn add_document_relationship(
         &mut self,

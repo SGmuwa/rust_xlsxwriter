@@ -41,6 +41,7 @@
 //! - Defined names.
 //! - Autofilters.
 //! - Worksheet Tables.
+//! - Pivot tables.
 //! - Serde serialization support.
 //! - Support for macros.
 //! - Memory optimization mode for writing large files.
@@ -328,6 +329,8 @@ mod image;
 mod metadata;
 mod note;
 mod packager;
+mod pivot_cache;
+mod pivot_table;
 mod properties;
 mod protection;
 mod relationship;
@@ -375,6 +378,7 @@ pub use format::*;
 pub use formula::*;
 pub use image::*;
 pub use note::*;
+pub use pivot_table::*;
 pub use properties::*;
 pub use protection::*;
 pub use shape::*;

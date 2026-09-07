@@ -157,6 +157,10 @@ pub enum XlsxError {
     /// table is configured incorrectly.
     TableError(String),
 
+    /// A general error that is raised when a pivot table parameter is
+    /// incorrect, or a pivot table is configured incorrectly.
+    PivotTableError(String),
+
     /// A Worksheet and Table autofilter range overlap. This is strictly
     /// prohibited by Excel.
     AutofilterRangeOverlaps(String, String),
@@ -343,6 +347,10 @@ impl fmt::Display for XlsxError {
 
             XlsxError::TableError(error) => {
                 write!(f, "Table error: '{error}'.")
+            }
+
+            XlsxError::PivotTableError(error) => {
+                write!(f, "Pivot table error: '{error}'.")
             }
 
             XlsxError::ConditionalFormatError(error) => {

@@ -1400,7 +1400,8 @@ use crate::{
     ChartRangeCacheDataType, Color, ConditionalFormat, DataValidation, DataValidationErrorStyle,
     DataValidationRuleInternal, DataValidationType, ExcelDateTime, FilterCondition, FilterCriteria,
     FilterData, FilterDataType, HeaderImagePosition, HyperlinkType, Image, IntoExcelDateTime, Note,
-    ObjectMovement, ProtectionOptions, Shape, Sparkline, SparklineType, Table, TableFunction, Url,
+    ObjectMovement, PivotTable, ProtectionOptions, Shape, Sparkline, SparklineType, Table,
+    TableFunction, Url,
 };
 
 /// Integer type to represent a zero indexed row number. Excel's limit for rows
@@ -1518,6 +1519,7 @@ pub struct Worksheet {
     pub(crate) notes: BTreeMap<RowNum, BTreeMap<ColNum, Note>>,
     pub(crate) shapes: BTreeMap<(RowNum, ColNum, u32, u32), Shape>,
     pub(crate) tables: Vec<Table>,
+    pub(crate) pivot_tables: Vec<PivotTable>,
     pub(crate) has_embedded_image_descriptions: bool,
     pub(crate) embedded_images: Vec<Image>,
     pub(crate) global_embedded_image_indices: Vec<u32>,
@@ -1544,6 +1546,7 @@ pub struct Worksheet {
     pub(crate) header_footer_vml_info: Vec<VmlInfo>,
     pub(crate) hyperlink_relationships: Vec<(String, String, String)>,
     pub(crate) table_relationships: Vec<(String, String, String)>,
+    pub(crate) pivot_table_relationships: Vec<(String, String, String)>,
     pub(crate) vml_drawing_relationships: Vec<(String, String, String)>,
     pub(crate) background_relationships: Vec<(String, String, String)>,
 
@@ -1762,6 +1765,7 @@ impl Worksheet {
             merged_ranges: vec![],
             merged_cells: HashMap::new(),
             tables: vec![],
+            pivot_tables: vec![],
             table_ranges: vec![],
             table_cells: HashMap::new(),
             default_format: Format::default(),
@@ -1878,6 +1882,7 @@ impl Worksheet {
             header_footer_vml_info: vec![],
             hyperlink_relationships: vec![],
             table_relationships: vec![],
+            pivot_table_relationships: vec![],
             vml_drawing_relationships: vec![],
             background_relationships: vec![],
             is_chartsheet: false,
@@ -9120,6 +9125,117 @@ impl Worksheet {
         // Store the table if everything was okay.
         self.table_ranges.push(cell_range);
         self.tables.push(table);
+
+        Ok(self)
+    }
+
+    /// Add a pivot table to a worksheet.
+    ///
+    /// Add a [`PivotTable`] to a worksheet at the given top left cell. The
+    /// source data for the pivot table is set via
+    /// [`PivotTable::set_data_source()`] and can be on this worksheet or on any
+    /// other worksheet in the workbook.
+    ///
+    /// Note, the cells of a pivot table are only populated after the file has
+    /// been opened by Excel or `LibreOffice`, see the [`PivotTable`]
+    /// documentation.
+    ///
+    /// Since the size of a pivot table isn't known until it has been expanded
+    /// by Excel, the library cannot check whether it overlaps another pivot
+    /// table, the source data, or other worksheet data. Leave enough room
+    /// around a pivot table for the summarized values, otherwise Excel will
+    /// report an overlap error when it refreshes the data.
+    ///
+    /// # Parameters
+    ///
+    /// - `row`: The zero indexed row of the top left cell of the pivot table.
+    /// - `col`: The zero indexed column of the top left cell of the pivot
+    ///   table.
+    /// - `pivot_table`: A [`PivotTable`] struct reference.
+    ///
+    /// # Errors
+    ///
+    /// - [`XlsxError::RowColumnLimitError`] - Row or column exceeds Excel's
+    ///   worksheet limits.
+    /// - [`XlsxError::PivotTableError`] - A general error that is raised when a
+    ///   pivot table parameter is incorrect or missing.
+    /// - [`XlsxError::NameError`] - The pivot table name doesn't meet Excel's
+    ///   naming rules.
+    ///
+    /// # Examples
+    ///
+    /// The following example demonstrates adding a pivot table to a worksheet.
+    ///
+    /// ```
+    /// # // This code is available in examples/doc_worksheet_add_pivot_table.rs
+    /// #
+    /// # use rust_xlsxwriter::{PivotTable, PivotTableDataField, Workbook, XlsxError};
+    /// #
+    /// # fn main() -> Result<(), XlsxError> {
+    /// #     let mut workbook = Workbook::new();
+    /// #
+    /// #     // Add a worksheet with the source data.
+    /// #     let worksheet = workbook.add_worksheet().set_name("Data")?;
+    /// #     worksheet.write_row(0, 0, ["Region", "Item", "Volume"])?;
+    /// #     worksheet.write_row(1, 0, ["East", "Apple"])?;
+    /// #     worksheet.write_row(2, 0, ["West", "Apple"])?;
+    /// #     worksheet.write_row(3, 0, ["East", "Pear"])?;
+    /// #     worksheet.write_column(1, 2, [9000, 5000, 7000])?;
+    /// #
+    ///     // Create a pivot table of the volume per region.
+    ///     let pivot_table = PivotTable::new()
+    ///         .set_data_source(("Data", 0, 0, 3, 2))
+    ///         .add_row_field("Region")
+    ///         .add_data_field(PivotTableDataField::new("Volume"));
+    ///
+    ///     // Add the pivot table to a second worksheet.
+    ///     let worksheet = workbook.add_worksheet().set_name("Pivot")?;
+    ///     worksheet.add_pivot_table(0, 0, &pivot_table)?;
+    /// #
+    /// #     workbook.save("pivot_table.xlsx")?;
+    /// #
+    /// #     Ok(())
+    /// # }
+    /// ```
+    ///
+    pub fn add_pivot_table(
+        &mut self,
+        row: RowNum,
+        col: ColNum,
+        pivot_table: &PivotTable,
+    ) -> Result<&mut Worksheet, XlsxError> {
+        // Check that the row and col are in the allowed range.
+        if !self.check_dimensions_only(row, col) {
+            return Err(XlsxError::RowColumnLimitError);
+        }
+
+        // Check that a user defined pivot table name meets Excel's naming
+        // rules. Empty names are allowed here since a default name is generated
+        // later.
+        if !pivot_table.name.is_empty() {
+            utility::check_name(&pivot_table.name)?;
+        }
+
+        // The source data range must be a valid worksheet range since the
+        // header row is read from it to get the field names.
+        if !pivot_table.data_source.has_data() {
+            return Err(XlsxError::PivotTableError(
+                "Pivot table must have a data source range".to_string(),
+            ));
+        }
+        pivot_table.data_source.validate()?;
+
+        if pivot_table.data_fields.is_empty() {
+            return Err(XlsxError::PivotTableError(
+                "Pivot table must have at least one data field".to_string(),
+            ));
+        }
+
+        let mut pivot_table = pivot_table.clone();
+        pivot_table.first_row = row;
+        pivot_table.first_col = col;
+
+        self.pivot_tables.push(pivot_table);
 
         Ok(self)
     }
@@ -17114,6 +17230,10 @@ impl Worksheet {
             xmlwriter::reset(&mut table.writer);
         }
 
+        for pivot_table in &mut self.pivot_tables {
+            xmlwriter::reset(&mut pivot_table.writer);
+        }
+
         self.rel_count = 0;
         self.comment_relationships.clear();
         self.drawing_object_relationships.clear();
@@ -17123,6 +17243,7 @@ impl Worksheet {
         self.header_footer_vml_info.clear();
         self.hyperlink_relationships.clear();
         self.table_relationships.clear();
+        self.pivot_table_relationships.clear();
         self.vml_drawing_relationships.clear();
         self.background_relationships.clear();
     }
@@ -17132,6 +17253,7 @@ impl Worksheet {
         !self.hyperlink_relationships.is_empty()
             || !self.drawing_object_relationships.is_empty()
             || !self.table_relationships.is_empty()
+            || !self.pivot_table_relationships.is_empty()
             || !self.background_relationships.is_empty()
     }
 
