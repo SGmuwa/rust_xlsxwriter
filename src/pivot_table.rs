@@ -39,15 +39,15 @@ use crate::{utility, ChartRange, ColNum, IntoChartRange, RowNum, XlsxError};
 /// #
 /// #     // Add a worksheet with the source data.
 /// #     let worksheet = workbook.add_worksheet().set_name("Data")?;
-/// #     worksheet.write_row(0, 0, ["Region", "Item", "Volume"])?;
-/// #     worksheet.write_row(1, 0, ["East", "Apple"])?;
-/// #     worksheet.write_row(2, 0, ["West", "Apple"])?;
-/// #     worksheet.write_row(3, 0, ["East", "Pear"])?;
-/// #     worksheet.write_column(1, 2, [9000, 5000, 7000])?;
+/// #     worksheet.write_row(0, 0, ["Region", "Item", "Month", "Volume"])?;
+/// #     worksheet.write_row(1, 0, ["East", "Apple", "July"])?;
+/// #     worksheet.write_row(2, 0, ["West", "Apple", "April"])?;
+/// #     worksheet.write_row(3, 0, ["East", "Pear", "July"])?;
+/// #     worksheet.write_column(1, 3, [9000, 5000, 7000])?;
 /// #
 ///     // Create a pivot table of the volume per region.
 ///     let pivot_table = PivotTable::new()
-///         .set_data_source(("Data", 0, 0, 3, 2))
+///         .set_data_source(("Data", 0, 0, 3, 3))
 ///         .add_row_field("Region")
 ///         .add_data_field(PivotTableDataField::new("Volume").set_function(PivotTableFunction::Sum));
 ///
@@ -120,6 +120,44 @@ impl PivotTable {
     /// [`PivotTable::set_data_source()`]) and one data field (see
     /// [`PivotTable::add_data_field()`]).
     ///
+    /// # Examples
+    ///
+    /// Example of creating a new pivot table and adding it to a worksheet.
+    ///
+    /// ```
+    /// # // This code is available in examples/doc_pivot_table_new.rs
+    /// #
+    /// # use rust_xlsxwriter::{PivotTable, PivotTableDataField, Workbook, XlsxError};
+    /// #
+    /// # fn main() -> Result<(), XlsxError> {
+    /// #     // Create a new Excel file object.
+    /// #     let mut workbook = Workbook::new();
+    /// #
+    /// #     // Add a worksheet with the source data for the pivot table.
+    /// #     let worksheet = workbook.add_worksheet().set_name("Data")?;
+    /// #     worksheet.write_row(0, 0, ["Region", "Item", "Month", "Volume"])?;
+    /// #     worksheet.write_row(1, 0, ["East", "Apple", "July"])?;
+    /// #     worksheet.write_row(2, 0, ["West", "Apple", "April"])?;
+    /// #     worksheet.write_row(3, 0, ["East", "Pear", "July"])?;
+    /// #     worksheet.write_column(1, 3, [9000, 5000, 7000])?;
+    /// #
+    ///     // Create a new pivot table.
+    ///     let pivot_table = PivotTable::new()
+    ///         .set_data_source(("Data", 0, 0, 3, 3))
+    ///         .add_row_field("Region")
+    ///         .add_data_field(PivotTableDataField::new("Volume"));
+    /// #
+    /// #     // Add the pivot table to a new worksheet.
+    /// #     let worksheet = workbook.add_worksheet().set_name("Pivot")?;
+    /// #     worksheet.add_pivot_table(0, 0, &pivot_table)?;
+    /// #
+    /// #     // Save the file to disk.
+    /// #     workbook.save("pivot_table.xlsx")?;
+    /// #
+    /// #     Ok(())
+    /// # }
+    /// ```
+    ///
     pub fn new() -> PivotTable {
         let writer = Cursor::new(Vec::with_capacity(2048));
 
@@ -158,6 +196,45 @@ impl PivotTable {
     ///
     /// - `name`: The name of the pivot table.
     ///
+    /// # Examples
+    ///
+    /// Example of setting the name of a pivot table.
+    ///
+    /// ```
+    /// # // This code is available in examples/doc_pivot_table_set_name.rs
+    /// #
+    /// # use rust_xlsxwriter::{PivotTable, PivotTableDataField, Workbook, XlsxError};
+    /// #
+    /// # fn main() -> Result<(), XlsxError> {
+    /// #     // Create a new Excel file object.
+    /// #     let mut workbook = Workbook::new();
+    /// #
+    /// #     // Add a worksheet with the source data for the pivot table.
+    /// #     let worksheet = workbook.add_worksheet().set_name("Data")?;
+    /// #     worksheet.write_row(0, 0, ["Region", "Item", "Month", "Volume"])?;
+    /// #     worksheet.write_row(1, 0, ["East", "Apple", "July"])?;
+    /// #     worksheet.write_row(2, 0, ["West", "Apple", "April"])?;
+    /// #     worksheet.write_row(3, 0, ["East", "Pear", "July"])?;
+    /// #     worksheet.write_column(1, 3, [9000, 5000, 7000])?;
+    /// #
+    ///     // Create a pivot table and set its name.
+    ///     let pivot_table = PivotTable::new()
+    ///         .set_name("VolumeByRegion")
+    ///         .set_data_source(("Data", 0, 0, 3, 3))
+    ///         .add_row_field("Region")
+    ///         .add_data_field(PivotTableDataField::new("Volume"));
+    /// #
+    /// #     // Add the pivot table to a new worksheet.
+    /// #     let worksheet = workbook.add_worksheet().set_name("Pivot")?;
+    /// #     worksheet.add_pivot_table(0, 0, &pivot_table)?;
+    /// #
+    /// #     // Save the file to disk.
+    /// #     workbook.save("pivot_table.xlsx")?;
+    /// #
+    /// #     Ok(())
+    /// # }
+    /// ```
+    ///
     pub fn set_name(mut self, name: impl Into<String>) -> PivotTable {
         self.name = name.into();
         self
@@ -176,6 +253,45 @@ impl PivotTable {
     ///   row/column values like `("Data", 0, 0, 50, 3)`. See
     ///   [`IntoChartRange`].
     ///
+    /// # Examples
+    ///
+    /// Example of setting the source data range of a pivot table.
+    ///
+    /// ```
+    /// # // This code is available in examples/doc_pivot_table_set_data_source.rs
+    /// #
+    /// # use rust_xlsxwriter::{PivotTable, PivotTableDataField, Workbook, XlsxError};
+    /// #
+    /// # fn main() -> Result<(), XlsxError> {
+    /// #     // Create a new Excel file object.
+    /// #     let mut workbook = Workbook::new();
+    /// #
+    /// #     // Add a worksheet with the source data for the pivot table.
+    /// #     let worksheet = workbook.add_worksheet().set_name("Data")?;
+    /// #     worksheet.write_row(0, 0, ["Region", "Item", "Month", "Volume"])?;
+    /// #     worksheet.write_row(1, 0, ["East", "Apple", "July"])?;
+    /// #     worksheet.write_row(2, 0, ["West", "Apple", "April"])?;
+    /// #     worksheet.write_row(3, 0, ["East", "Pear", "July"])?;
+    /// #     worksheet.write_column(1, 3, [9000, 5000, 7000])?;
+    /// #
+    ///     // Create a pivot table and set the range of its source data. The range
+    ///     // could also be given as a string like "Data!$A$1:$D$4".
+    ///     let pivot_table = PivotTable::new()
+    ///         .set_data_source(("Data", 0, 0, 3, 3))
+    ///         .add_row_field("Region")
+    ///         .add_data_field(PivotTableDataField::new("Volume"));
+    /// #
+    /// #     // Add the pivot table to a new worksheet.
+    /// #     let worksheet = workbook.add_worksheet().set_name("Pivot")?;
+    /// #     worksheet.add_pivot_table(0, 0, &pivot_table)?;
+    /// #
+    /// #     // Save the file to disk.
+    /// #     workbook.save("pivot_table.xlsx")?;
+    /// #
+    /// #     Ok(())
+    /// # }
+    /// ```
+    ///
     pub fn set_data_source<T>(mut self, range: T) -> PivotTable
     where
         T: IntoChartRange,
@@ -193,6 +309,47 @@ impl PivotTable {
     ///
     /// - `style`: A [`PivotTableStyle`] enum value.
     ///
+    /// # Examples
+    ///
+    /// Example of setting the style of a pivot table.
+    ///
+    /// ```
+    /// # // This code is available in examples/doc_pivot_table_set_style.rs
+    /// #
+    /// # use rust_xlsxwriter::{
+    /// #     PivotTable, PivotTableDataField, PivotTableStyle, Workbook, XlsxError,
+    /// # };
+    /// #
+    /// # fn main() -> Result<(), XlsxError> {
+    /// #     // Create a new Excel file object.
+    /// #     let mut workbook = Workbook::new();
+    /// #
+    /// #     // Add a worksheet with the source data for the pivot table.
+    /// #     let worksheet = workbook.add_worksheet().set_name("Data")?;
+    /// #     worksheet.write_row(0, 0, ["Region", "Item", "Month", "Volume"])?;
+    /// #     worksheet.write_row(1, 0, ["East", "Apple", "July"])?;
+    /// #     worksheet.write_row(2, 0, ["West", "Apple", "April"])?;
+    /// #     worksheet.write_row(3, 0, ["East", "Pear", "July"])?;
+    /// #     worksheet.write_column(1, 3, [9000, 5000, 7000])?;
+    /// #
+    ///     // Create a pivot table and set its style.
+    ///     let pivot_table = PivotTable::new()
+    ///         .set_data_source(("Data", 0, 0, 3, 3))
+    ///         .set_style(PivotTableStyle::Medium10)
+    ///         .add_row_field("Region")
+    ///         .add_data_field(PivotTableDataField::new("Volume"));
+    /// #
+    /// #     // Add the pivot table to a new worksheet.
+    /// #     let worksheet = workbook.add_worksheet().set_name("Pivot")?;
+    /// #     worksheet.add_pivot_table(0, 0, &pivot_table)?;
+    /// #
+    /// #     // Save the file to disk.
+    /// #     workbook.save("pivot_table.xlsx")?;
+    /// #
+    /// #     Ok(())
+    /// # }
+    /// ```
+    ///
     pub fn set_style(mut self, style: PivotTableStyle) -> PivotTable {
         self.style = style;
         self
@@ -209,6 +366,49 @@ impl PivotTable {
     ///
     /// - `layout`: A [`PivotTableLayout`] enum value.
     ///
+    /// # Examples
+    ///
+    /// Example of setting the row layout of a pivot table.
+    ///
+    /// ```
+    /// # // This code is available in examples/doc_pivot_table_set_layout.rs
+    /// #
+    /// # use rust_xlsxwriter::{
+    /// #     PivotTable, PivotTableDataField, PivotTableLayout, Workbook, XlsxError,
+    /// # };
+    /// #
+    /// # fn main() -> Result<(), XlsxError> {
+    /// #     // Create a new Excel file object.
+    /// #     let mut workbook = Workbook::new();
+    /// #
+    /// #     // Add a worksheet with the source data for the pivot table.
+    /// #     let worksheet = workbook.add_worksheet().set_name("Data")?;
+    /// #     worksheet.write_row(0, 0, ["Region", "Item", "Month", "Volume"])?;
+    /// #     worksheet.write_row(1, 0, ["East", "Apple", "July"])?;
+    /// #     worksheet.write_row(2, 0, ["West", "Apple", "April"])?;
+    /// #     worksheet.write_row(3, 0, ["East", "Pear", "July"])?;
+    /// #     worksheet.write_column(1, 3, [9000, 5000, 7000])?;
+    /// #
+    ///     // Create a pivot table with two row fields in tabular layout so that each
+    ///     // row field gets a column of its own.
+    ///     let pivot_table = PivotTable::new()
+    ///         .set_data_source(("Data", 0, 0, 3, 3))
+    ///         .set_layout(PivotTableLayout::Tabular)
+    ///         .add_row_field("Region")
+    ///         .add_row_field("Item")
+    ///         .add_data_field(PivotTableDataField::new("Volume"));
+    /// #
+    /// #     // Add the pivot table to a new worksheet.
+    /// #     let worksheet = workbook.add_worksheet().set_name("Pivot")?;
+    /// #     worksheet.add_pivot_table(0, 0, &pivot_table)?;
+    /// #
+    /// #     // Save the file to disk.
+    /// #     workbook.save("pivot_table.xlsx")?;
+    /// #
+    /// #     Ok(())
+    /// # }
+    /// ```
+    ///
     pub fn set_layout(mut self, layout: PivotTableLayout) -> PivotTable {
         self.layout = layout;
         self
@@ -221,6 +421,46 @@ impl PivotTable {
     /// # Parameters
     ///
     /// - `enable`: Turn the property on/off. It is on by default.
+    ///
+    /// # Examples
+    ///
+    /// Example of turning off the row grand total of a pivot table.
+    ///
+    /// ```
+    /// # // This code is available in examples/doc_pivot_table_set_show_row_grand_total.rs
+    /// #
+    /// # use rust_xlsxwriter::{PivotTable, PivotTableDataField, Workbook, XlsxError};
+    /// #
+    /// # fn main() -> Result<(), XlsxError> {
+    /// #     // Create a new Excel file object.
+    /// #     let mut workbook = Workbook::new();
+    /// #
+    /// #     // Add a worksheet with the source data for the pivot table.
+    /// #     let worksheet = workbook.add_worksheet().set_name("Data")?;
+    /// #     worksheet.write_row(0, 0, ["Region", "Item", "Month", "Volume"])?;
+    /// #     worksheet.write_row(1, 0, ["East", "Apple", "July"])?;
+    /// #     worksheet.write_row(2, 0, ["West", "Apple", "April"])?;
+    /// #     worksheet.write_row(3, 0, ["East", "Pear", "July"])?;
+    /// #     worksheet.write_column(1, 3, [9000, 5000, 7000])?;
+    /// #
+    ///     // Create a pivot table without the row grand total.
+    ///     let pivot_table = PivotTable::new()
+    ///         .set_data_source(("Data", 0, 0, 3, 3))
+    ///         .set_show_row_grand_total(false)
+    ///         .add_row_field("Region")
+    ///         .add_column_field("Item")
+    ///         .add_data_field(PivotTableDataField::new("Volume"));
+    /// #
+    /// #     // Add the pivot table to a new worksheet.
+    /// #     let worksheet = workbook.add_worksheet().set_name("Pivot")?;
+    /// #     worksheet.add_pivot_table(0, 0, &pivot_table)?;
+    /// #
+    /// #     // Save the file to disk.
+    /// #     workbook.save("pivot_table.xlsx")?;
+    /// #
+    /// #     Ok(())
+    /// # }
+    /// ```
     ///
     pub fn set_show_row_grand_total(mut self, enable: bool) -> PivotTable {
         self.show_row_grand_totals = enable;
@@ -235,6 +475,46 @@ impl PivotTable {
     ///
     /// - `enable`: Turn the property on/off. It is on by default.
     ///
+    /// # Examples
+    ///
+    /// Example of turning off the column grand total of a pivot table.
+    ///
+    /// ```
+    /// # // This code is available in examples/doc_pivot_table_set_show_column_grand_total.rs
+    /// #
+    /// # use rust_xlsxwriter::{PivotTable, PivotTableDataField, Workbook, XlsxError};
+    /// #
+    /// # fn main() -> Result<(), XlsxError> {
+    /// #     // Create a new Excel file object.
+    /// #     let mut workbook = Workbook::new();
+    /// #
+    /// #     // Add a worksheet with the source data for the pivot table.
+    /// #     let worksheet = workbook.add_worksheet().set_name("Data")?;
+    /// #     worksheet.write_row(0, 0, ["Region", "Item", "Month", "Volume"])?;
+    /// #     worksheet.write_row(1, 0, ["East", "Apple", "July"])?;
+    /// #     worksheet.write_row(2, 0, ["West", "Apple", "April"])?;
+    /// #     worksheet.write_row(3, 0, ["East", "Pear", "July"])?;
+    /// #     worksheet.write_column(1, 3, [9000, 5000, 7000])?;
+    /// #
+    ///     // Create a pivot table without the column grand total.
+    ///     let pivot_table = PivotTable::new()
+    ///         .set_data_source(("Data", 0, 0, 3, 3))
+    ///         .set_show_column_grand_total(false)
+    ///         .add_row_field("Region")
+    ///         .add_column_field("Item")
+    ///         .add_data_field(PivotTableDataField::new("Volume"));
+    /// #
+    /// #     // Add the pivot table to a new worksheet.
+    /// #     let worksheet = workbook.add_worksheet().set_name("Pivot")?;
+    /// #     worksheet.add_pivot_table(0, 0, &pivot_table)?;
+    /// #
+    /// #     // Save the file to disk.
+    /// #     workbook.save("pivot_table.xlsx")?;
+    /// #
+    /// #     Ok(())
+    /// # }
+    /// ```
+    ///
     pub fn set_show_column_grand_total(mut self, enable: bool) -> PivotTable {
         self.show_column_grand_totals = enable;
         self
@@ -245,6 +525,44 @@ impl PivotTable {
     /// # Parameters
     ///
     /// - `name`: The name of a field in the header row of the source data.
+    ///
+    /// # Examples
+    ///
+    /// Example of adding a field to the row area of a pivot table.
+    ///
+    /// ```
+    /// # // This code is available in examples/doc_pivot_table_add_row_field.rs
+    /// #
+    /// # use rust_xlsxwriter::{PivotTable, PivotTableDataField, Workbook, XlsxError};
+    /// #
+    /// # fn main() -> Result<(), XlsxError> {
+    /// #     // Create a new Excel file object.
+    /// #     let mut workbook = Workbook::new();
+    /// #
+    /// #     // Add a worksheet with the source data for the pivot table.
+    /// #     let worksheet = workbook.add_worksheet().set_name("Data")?;
+    /// #     worksheet.write_row(0, 0, ["Region", "Item", "Month", "Volume"])?;
+    /// #     worksheet.write_row(1, 0, ["East", "Apple", "July"])?;
+    /// #     worksheet.write_row(2, 0, ["West", "Apple", "April"])?;
+    /// #     worksheet.write_row(3, 0, ["East", "Pear", "July"])?;
+    /// #     worksheet.write_column(1, 3, [9000, 5000, 7000])?;
+    /// #
+    ///     // Create a pivot table with the regions in the row area.
+    ///     let pivot_table = PivotTable::new()
+    ///         .set_data_source(("Data", 0, 0, 3, 3))
+    ///         .add_row_field("Region")
+    ///         .add_data_field(PivotTableDataField::new("Volume"));
+    /// #
+    /// #     // Add the pivot table to a new worksheet.
+    /// #     let worksheet = workbook.add_worksheet().set_name("Pivot")?;
+    /// #     worksheet.add_pivot_table(0, 0, &pivot_table)?;
+    /// #
+    /// #     // Save the file to disk.
+    /// #     workbook.save("pivot_table.xlsx")?;
+    /// #
+    /// #     Ok(())
+    /// # }
+    /// ```
     ///
     pub fn add_row_field(mut self, name: impl Into<String>) -> PivotTable {
         self.row_field_names.push(name.into());
@@ -257,6 +575,45 @@ impl PivotTable {
     ///
     /// - `name`: The name of a field in the header row of the source data.
     ///
+    /// # Examples
+    ///
+    /// Example of adding a field to the column area of a pivot table.
+    ///
+    /// ```
+    /// # // This code is available in examples/doc_pivot_table_add_column_field.rs
+    /// #
+    /// # use rust_xlsxwriter::{PivotTable, PivotTableDataField, Workbook, XlsxError};
+    /// #
+    /// # fn main() -> Result<(), XlsxError> {
+    /// #     // Create a new Excel file object.
+    /// #     let mut workbook = Workbook::new();
+    /// #
+    /// #     // Add a worksheet with the source data for the pivot table.
+    /// #     let worksheet = workbook.add_worksheet().set_name("Data")?;
+    /// #     worksheet.write_row(0, 0, ["Region", "Item", "Month", "Volume"])?;
+    /// #     worksheet.write_row(1, 0, ["East", "Apple", "July"])?;
+    /// #     worksheet.write_row(2, 0, ["West", "Apple", "April"])?;
+    /// #     worksheet.write_row(3, 0, ["East", "Pear", "July"])?;
+    /// #     worksheet.write_column(1, 3, [9000, 5000, 7000])?;
+    /// #
+    ///     // Create a pivot table with the items in the column area.
+    ///     let pivot_table = PivotTable::new()
+    ///         .set_data_source(("Data", 0, 0, 3, 3))
+    ///         .add_row_field("Region")
+    ///         .add_column_field("Item")
+    ///         .add_data_field(PivotTableDataField::new("Volume"));
+    /// #
+    /// #     // Add the pivot table to a new worksheet.
+    /// #     let worksheet = workbook.add_worksheet().set_name("Pivot")?;
+    /// #     worksheet.add_pivot_table(0, 0, &pivot_table)?;
+    /// #
+    /// #     // Save the file to disk.
+    /// #     workbook.save("pivot_table.xlsx")?;
+    /// #
+    /// #     Ok(())
+    /// # }
+    /// ```
+    ///
     pub fn add_column_field(mut self, name: impl Into<String>) -> PivotTable {
         self.column_field_names.push(name.into());
         self
@@ -267,6 +624,45 @@ impl PivotTable {
     /// # Parameters
     ///
     /// - `name`: The name of a field in the header row of the source data.
+    ///
+    /// # Examples
+    ///
+    /// Example of adding a field to the filter area of a pivot table.
+    ///
+    /// ```
+    /// # // This code is available in examples/doc_pivot_table_add_filter_field.rs
+    /// #
+    /// # use rust_xlsxwriter::{PivotTable, PivotTableDataField, Workbook, XlsxError};
+    /// #
+    /// # fn main() -> Result<(), XlsxError> {
+    /// #     // Create a new Excel file object.
+    /// #     let mut workbook = Workbook::new();
+    /// #
+    /// #     // Add a worksheet with the source data for the pivot table.
+    /// #     let worksheet = workbook.add_worksheet().set_name("Data")?;
+    /// #     worksheet.write_row(0, 0, ["Region", "Item", "Month", "Volume"])?;
+    /// #     worksheet.write_row(1, 0, ["East", "Apple", "July"])?;
+    /// #     worksheet.write_row(2, 0, ["West", "Apple", "April"])?;
+    /// #     worksheet.write_row(3, 0, ["East", "Pear", "July"])?;
+    /// #     worksheet.write_column(1, 3, [9000, 5000, 7000])?;
+    /// #
+    ///     // Create a pivot table with the months in the filter area.
+    ///     let pivot_table = PivotTable::new()
+    ///         .set_data_source(("Data", 0, 0, 3, 3))
+    ///         .add_filter_field("Month")
+    ///         .add_row_field("Region")
+    ///         .add_data_field(PivotTableDataField::new("Volume"));
+    /// #
+    /// #     // Add the pivot table to a new worksheet.
+    /// #     let worksheet = workbook.add_worksheet().set_name("Pivot")?;
+    /// #     worksheet.add_pivot_table(0, 0, &pivot_table)?;
+    /// #
+    /// #     // Save the file to disk.
+    /// #     workbook.save("pivot_table.xlsx")?;
+    /// #
+    /// #     Ok(())
+    /// # }
+    /// ```
     ///
     pub fn add_filter_field(mut self, name: impl Into<String>) -> PivotTable {
         self.filter_field_names.push(name.into());
@@ -280,6 +676,48 @@ impl PivotTable {
     /// # Parameters
     ///
     /// - `data_field`: A [`PivotTableDataField`] struct reference.
+    ///
+    /// # Examples
+    ///
+    /// Example of adding a field to the values area of a pivot table.
+    ///
+    /// ```
+    /// # // This code is available in examples/doc_pivot_table_add_data_field.rs
+    /// #
+    /// # use rust_xlsxwriter::{
+    /// #     PivotTable, PivotTableDataField, PivotTableFunction, Workbook, XlsxError,
+    /// # };
+    /// #
+    /// # fn main() -> Result<(), XlsxError> {
+    /// #     // Create a new Excel file object.
+    /// #     let mut workbook = Workbook::new();
+    /// #
+    /// #     // Add a worksheet with the source data for the pivot table.
+    /// #     let worksheet = workbook.add_worksheet().set_name("Data")?;
+    /// #     worksheet.write_row(0, 0, ["Region", "Item", "Month", "Volume"])?;
+    /// #     worksheet.write_row(1, 0, ["East", "Apple", "July"])?;
+    /// #     worksheet.write_row(2, 0, ["West", "Apple", "April"])?;
+    /// #     worksheet.write_row(3, 0, ["East", "Pear", "July"])?;
+    /// #     worksheet.write_column(1, 3, [9000, 5000, 7000])?;
+    /// #
+    ///     // Create a pivot table with the average volume in the values area.
+    ///     let pivot_table = PivotTable::new()
+    ///         .set_data_source(("Data", 0, 0, 3, 3))
+    ///         .add_row_field("Region")
+    ///         .add_data_field(
+    ///             PivotTableDataField::new("Volume").set_function(PivotTableFunction::Average),
+    ///         );
+    /// #
+    /// #     // Add the pivot table to a new worksheet.
+    /// #     let worksheet = workbook.add_worksheet().set_name("Pivot")?;
+    /// #     worksheet.add_pivot_table(0, 0, &pivot_table)?;
+    /// #
+    /// #     // Save the file to disk.
+    /// #     workbook.save("pivot_table.xlsx")?;
+    /// #
+    /// #     Ok(())
+    /// # }
+    /// ```
     ///
     pub fn add_data_field(mut self, data_field: impl Into<PivotTableDataField>) -> PivotTable {
         self.data_fields.push(data_field.into());
@@ -304,6 +742,46 @@ impl PivotTable {
     ///
     /// - [`XlsxError::PivotTableError`] - This method isn't implemented yet and
     ///   returns an error if `enable` is set to `true`.
+    ///
+    /// # Examples
+    ///
+    /// Example of turning the pivot cache records off, which is the default.
+    ///
+    /// ```
+    /// # // This code is available in examples/doc_pivot_table_set_cache_data.rs
+    /// #
+    /// # use rust_xlsxwriter::{PivotTable, PivotTableDataField, Workbook, XlsxError};
+    /// #
+    /// # fn main() -> Result<(), XlsxError> {
+    /// #     // Create a new Excel file object.
+    /// #     let mut workbook = Workbook::new();
+    /// #
+    /// #     // Add a worksheet with the source data for the pivot table.
+    /// #     let worksheet = workbook.add_worksheet().set_name("Data")?;
+    /// #     worksheet.write_row(0, 0, ["Region", "Item", "Month", "Volume"])?;
+    /// #     worksheet.write_row(1, 0, ["East", "Apple", "July"])?;
+    /// #     worksheet.write_row(2, 0, ["West", "Apple", "April"])?;
+    /// #     worksheet.write_row(3, 0, ["East", "Pear", "July"])?;
+    /// #     worksheet.write_column(1, 3, [9000, 5000, 7000])?;
+    /// #
+    ///     // Create a pivot table. Writing the pivot cache records isn't implemented
+    ///     // so they can only be turned off, which is also the default.
+    ///     let pivot_table = PivotTable::new()
+    ///         .set_data_source(("Data", 0, 0, 3, 3))
+    ///         .set_cache_data(false)?
+    ///         .add_row_field("Region")
+    ///         .add_data_field(PivotTableDataField::new("Volume"));
+    /// #
+    /// #     // Add the pivot table to a new worksheet.
+    /// #     let worksheet = workbook.add_worksheet().set_name("Pivot")?;
+    /// #     worksheet.add_pivot_table(0, 0, &pivot_table)?;
+    /// #
+    /// #     // Save the file to disk.
+    /// #     workbook.save("pivot_table.xlsx")?;
+    /// #
+    /// #     Ok(())
+    /// # }
+    /// ```
     ///
     pub fn set_cache_data(self, enable: bool) -> Result<PivotTable, XlsxError> {
         if enable {
@@ -675,6 +1153,46 @@ impl PivotTableDataField {
     /// - `field_name`: The name of a field in the header row of the pivot table
     ///   source data.
     ///
+    /// # Examples
+    ///
+    /// Example of creating a data field for the values area of a pivot table.
+    ///
+    /// ```
+    /// # // This code is available in examples/doc_pivot_table_data_field_new.rs
+    /// #
+    /// # use rust_xlsxwriter::{PivotTable, PivotTableDataField, Workbook, XlsxError};
+    /// #
+    /// # fn main() -> Result<(), XlsxError> {
+    /// #     // Create a new Excel file object.
+    /// #     let mut workbook = Workbook::new();
+    /// #
+    /// #     // Add a worksheet with the source data for the pivot table.
+    /// #     let worksheet = workbook.add_worksheet().set_name("Data")?;
+    /// #     worksheet.write_row(0, 0, ["Region", "Item", "Month", "Volume"])?;
+    /// #     worksheet.write_row(1, 0, ["East", "Apple", "July"])?;
+    /// #     worksheet.write_row(2, 0, ["West", "Apple", "April"])?;
+    /// #     worksheet.write_row(3, 0, ["East", "Pear", "July"])?;
+    /// #     worksheet.write_column(1, 3, [9000, 5000, 7000])?;
+    /// #
+    ///     // Create a data field for the values area of a pivot table.
+    ///     let data_field = PivotTableDataField::new("Volume");
+    ///
+    ///     let pivot_table = PivotTable::new()
+    ///         .set_data_source(("Data", 0, 0, 3, 3))
+    ///         .add_row_field("Region")
+    ///         .add_data_field(data_field);
+    /// #
+    /// #     // Add the pivot table to a new worksheet.
+    /// #     let worksheet = workbook.add_worksheet().set_name("Pivot")?;
+    /// #     worksheet.add_pivot_table(0, 0, &pivot_table)?;
+    /// #
+    /// #     // Save the file to disk.
+    /// #     workbook.save("pivot_table.xlsx")?;
+    /// #
+    /// #     Ok(())
+    /// # }
+    /// ```
+    ///
     pub fn new(field_name: impl Into<String>) -> PivotTableDataField {
         PivotTableDataField {
             field_name: field_name.into(),
@@ -694,6 +1212,48 @@ impl PivotTableDataField {
     ///
     /// - `function`: A [`PivotTableFunction`] enum value.
     ///
+    /// # Examples
+    ///
+    /// Example of setting the summary function of a pivot table data field.
+    ///
+    /// ```
+    /// # // This code is available in examples/doc_pivot_table_data_field_set_function.rs
+    /// #
+    /// # use rust_xlsxwriter::{
+    /// #     PivotTable, PivotTableDataField, PivotTableFunction, Workbook, XlsxError,
+    /// # };
+    /// #
+    /// # fn main() -> Result<(), XlsxError> {
+    /// #     // Create a new Excel file object.
+    /// #     let mut workbook = Workbook::new();
+    /// #
+    /// #     // Add a worksheet with the source data for the pivot table.
+    /// #     let worksheet = workbook.add_worksheet().set_name("Data")?;
+    /// #     worksheet.write_row(0, 0, ["Region", "Item", "Month", "Volume"])?;
+    /// #     worksheet.write_row(1, 0, ["East", "Apple", "July"])?;
+    /// #     worksheet.write_row(2, 0, ["West", "Apple", "April"])?;
+    /// #     worksheet.write_row(3, 0, ["East", "Pear", "July"])?;
+    /// #     worksheet.write_column(1, 3, [9000, 5000, 7000])?;
+    /// #
+    ///     // Create a data field that shows the maximum volume.
+    ///     let data_field = PivotTableDataField::new("Volume").set_function(PivotTableFunction::Max);
+    ///
+    ///     let pivot_table = PivotTable::new()
+    ///         .set_data_source(("Data", 0, 0, 3, 3))
+    ///         .add_row_field("Region")
+    ///         .add_data_field(data_field);
+    /// #
+    /// #     // Add the pivot table to a new worksheet.
+    /// #     let worksheet = workbook.add_worksheet().set_name("Pivot")?;
+    /// #     worksheet.add_pivot_table(0, 0, &pivot_table)?;
+    /// #
+    /// #     // Save the file to disk.
+    /// #     workbook.save("pivot_table.xlsx")?;
+    /// #
+    /// #     Ok(())
+    /// # }
+    /// ```
+    ///
     pub fn set_function(mut self, function: PivotTableFunction) -> PivotTableDataField {
         self.function = function;
         self
@@ -707,6 +1267,47 @@ impl PivotTableDataField {
     /// # Parameters
     ///
     /// - `name`: The name to display in the pivot table.
+    ///
+    /// # Examples
+    ///
+    /// Example of setting the caption of a pivot table data field.
+    ///
+    /// ```
+    /// # // This code is available in examples/doc_pivot_table_data_field_set_name.rs
+    /// #
+    /// # use rust_xlsxwriter::{PivotTable, PivotTableDataField, Workbook, XlsxError};
+    /// #
+    /// # fn main() -> Result<(), XlsxError> {
+    /// #     // Create a new Excel file object.
+    /// #     let mut workbook = Workbook::new();
+    /// #
+    /// #     // Add a worksheet with the source data for the pivot table.
+    /// #     let worksheet = workbook.add_worksheet().set_name("Data")?;
+    /// #     worksheet.write_row(0, 0, ["Region", "Item", "Month", "Volume"])?;
+    /// #     worksheet.write_row(1, 0, ["East", "Apple", "July"])?;
+    /// #     worksheet.write_row(2, 0, ["West", "Apple", "April"])?;
+    /// #     worksheet.write_row(3, 0, ["East", "Pear", "July"])?;
+    /// #     worksheet.write_column(1, 3, [9000, 5000, 7000])?;
+    /// #
+    ///     // Create a data field with a caption of its own instead of the default
+    ///     // "Sum of Volume".
+    ///     let data_field = PivotTableDataField::new("Volume").set_name("Total volume");
+    ///
+    ///     let pivot_table = PivotTable::new()
+    ///         .set_data_source(("Data", 0, 0, 3, 3))
+    ///         .add_row_field("Region")
+    ///         .add_data_field(data_field);
+    /// #
+    /// #     // Add the pivot table to a new worksheet.
+    /// #     let worksheet = workbook.add_worksheet().set_name("Pivot")?;
+    /// #     worksheet.add_pivot_table(0, 0, &pivot_table)?;
+    /// #
+    /// #     // Save the file to disk.
+    /// #     workbook.save("pivot_table.xlsx")?;
+    /// #
+    /// #     Ok(())
+    /// # }
+    /// ```
     ///
     pub fn set_name(mut self, name: impl Into<String>) -> PivotTableDataField {
         self.name = name.into();
@@ -725,6 +1326,46 @@ impl PivotTableDataField {
     /// # Parameters
     ///
     /// - `num_format`: An Excel number format string.
+    ///
+    /// # Examples
+    ///
+    /// Example of setting the number format of a pivot table data field.
+    ///
+    /// ```
+    /// # // This code is available in examples/doc_pivot_table_data_field_set_num_format.rs
+    /// #
+    /// # use rust_xlsxwriter::{PivotTable, PivotTableDataField, Workbook, XlsxError};
+    /// #
+    /// # fn main() -> Result<(), XlsxError> {
+    /// #     // Create a new Excel file object.
+    /// #     let mut workbook = Workbook::new();
+    /// #
+    /// #     // Add a worksheet with the source data for the pivot table.
+    /// #     let worksheet = workbook.add_worksheet().set_name("Data")?;
+    /// #     worksheet.write_row(0, 0, ["Region", "Item", "Month", "Volume"])?;
+    /// #     worksheet.write_row(1, 0, ["East", "Apple", "July"])?;
+    /// #     worksheet.write_row(2, 0, ["West", "Apple", "April"])?;
+    /// #     worksheet.write_row(3, 0, ["East", "Pear", "July"])?;
+    /// #     worksheet.write_column(1, 3, [9000, 5000, 7000])?;
+    /// #
+    ///     // Create a data field with a number format.
+    ///     let data_field = PivotTableDataField::new("Volume").set_num_format("#,##0.00");
+    ///
+    ///     let pivot_table = PivotTable::new()
+    ///         .set_data_source(("Data", 0, 0, 3, 3))
+    ///         .add_row_field("Region")
+    ///         .add_data_field(data_field);
+    /// #
+    /// #     // Add the pivot table to a new worksheet.
+    /// #     let worksheet = workbook.add_worksheet().set_name("Pivot")?;
+    /// #     worksheet.add_pivot_table(0, 0, &pivot_table)?;
+    /// #
+    /// #     // Save the file to disk.
+    /// #     workbook.save("pivot_table.xlsx")?;
+    /// #
+    /// #     Ok(())
+    /// # }
+    /// ```
     ///
     pub fn set_num_format(mut self, num_format: impl Into<String>) -> PivotTableDataField {
         self.num_format = num_format.into();
@@ -753,6 +1394,48 @@ impl From<&PivotTableDataField> for PivotTableDataField {
 
 /// The `PivotTableFunction` enum defines the summary functions used by a
 /// [`PivotTableDataField`].
+///
+/// # Examples
+///
+/// Example of setting the summary function of a pivot table data field.
+///
+/// ```
+/// # // This code is available in examples/doc_pivot_table_data_field_set_function.rs
+/// #
+/// # use rust_xlsxwriter::{
+/// #     PivotTable, PivotTableDataField, PivotTableFunction, Workbook, XlsxError,
+/// # };
+/// #
+/// # fn main() -> Result<(), XlsxError> {
+/// #     // Create a new Excel file object.
+/// #     let mut workbook = Workbook::new();
+/// #
+/// #     // Add a worksheet with the source data for the pivot table.
+/// #     let worksheet = workbook.add_worksheet().set_name("Data")?;
+/// #     worksheet.write_row(0, 0, ["Region", "Item", "Month", "Volume"])?;
+/// #     worksheet.write_row(1, 0, ["East", "Apple", "July"])?;
+/// #     worksheet.write_row(2, 0, ["West", "Apple", "April"])?;
+/// #     worksheet.write_row(3, 0, ["East", "Pear", "July"])?;
+/// #     worksheet.write_column(1, 3, [9000, 5000, 7000])?;
+/// #
+///     // Create a data field that shows the maximum volume.
+///     let data_field = PivotTableDataField::new("Volume").set_function(PivotTableFunction::Max);
+///
+///     let pivot_table = PivotTable::new()
+///         .set_data_source(("Data", 0, 0, 3, 3))
+///         .add_row_field("Region")
+///         .add_data_field(data_field);
+/// #
+/// #     // Add the pivot table to a new worksheet.
+/// #     let worksheet = workbook.add_worksheet().set_name("Pivot")?;
+/// #     worksheet.add_pivot_table(0, 0, &pivot_table)?;
+/// #
+/// #     // Save the file to disk.
+/// #     workbook.save("pivot_table.xlsx")?;
+/// #
+/// #     Ok(())
+/// # }
+/// ```
 ///
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum PivotTableFunction {
@@ -837,6 +1520,47 @@ impl fmt::Display for PivotTableFunction {
 /// `rust_xlsxwriter`, like Excel, is [`PivotTableStyle::Light16`].
 ///
 /// The style is set via the [`PivotTable::set_style()`] method.
+///
+/// # Examples
+///
+/// Example of setting the style of a pivot table.
+///
+/// ```
+/// # // This code is available in examples/doc_pivot_table_set_style.rs
+/// #
+/// # use rust_xlsxwriter::{
+/// #     PivotTable, PivotTableDataField, PivotTableStyle, Workbook, XlsxError,
+/// # };
+/// #
+/// # fn main() -> Result<(), XlsxError> {
+/// #     // Create a new Excel file object.
+/// #     let mut workbook = Workbook::new();
+/// #
+/// #     // Add a worksheet with the source data for the pivot table.
+/// #     let worksheet = workbook.add_worksheet().set_name("Data")?;
+/// #     worksheet.write_row(0, 0, ["Region", "Item", "Month", "Volume"])?;
+/// #     worksheet.write_row(1, 0, ["East", "Apple", "July"])?;
+/// #     worksheet.write_row(2, 0, ["West", "Apple", "April"])?;
+/// #     worksheet.write_row(3, 0, ["East", "Pear", "July"])?;
+/// #     worksheet.write_column(1, 3, [9000, 5000, 7000])?;
+/// #
+///     // Create a pivot table and set its style.
+///     let pivot_table = PivotTable::new()
+///         .set_data_source(("Data", 0, 0, 3, 3))
+///         .set_style(PivotTableStyle::Medium10)
+///         .add_row_field("Region")
+///         .add_data_field(PivotTableDataField::new("Volume"));
+/// #
+/// #     // Add the pivot table to a new worksheet.
+/// #     let worksheet = workbook.add_worksheet().set_name("Pivot")?;
+/// #     worksheet.add_pivot_table(0, 0, &pivot_table)?;
+/// #
+/// #     // Save the file to disk.
+/// #     workbook.save("pivot_table.xlsx")?;
+/// #
+/// #     Ok(())
+/// # }
+/// ```
 ///
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum PivotTableStyle {
@@ -1112,6 +1836,49 @@ impl fmt::Display for PivotTableStyle {
 /// table.
 ///
 /// The layout is set via the [`PivotTable::set_layout()`] method.
+///
+/// # Examples
+///
+/// Example of setting the row layout of a pivot table.
+///
+/// ```
+/// # // This code is available in examples/doc_pivot_table_set_layout.rs
+/// #
+/// # use rust_xlsxwriter::{
+/// #     PivotTable, PivotTableDataField, PivotTableLayout, Workbook, XlsxError,
+/// # };
+/// #
+/// # fn main() -> Result<(), XlsxError> {
+/// #     // Create a new Excel file object.
+/// #     let mut workbook = Workbook::new();
+/// #
+/// #     // Add a worksheet with the source data for the pivot table.
+/// #     let worksheet = workbook.add_worksheet().set_name("Data")?;
+/// #     worksheet.write_row(0, 0, ["Region", "Item", "Month", "Volume"])?;
+/// #     worksheet.write_row(1, 0, ["East", "Apple", "July"])?;
+/// #     worksheet.write_row(2, 0, ["West", "Apple", "April"])?;
+/// #     worksheet.write_row(3, 0, ["East", "Pear", "July"])?;
+/// #     worksheet.write_column(1, 3, [9000, 5000, 7000])?;
+/// #
+///     // Create a pivot table with two row fields in tabular layout so that each
+///     // row field gets a column of its own.
+///     let pivot_table = PivotTable::new()
+///         .set_data_source(("Data", 0, 0, 3, 3))
+///         .set_layout(PivotTableLayout::Tabular)
+///         .add_row_field("Region")
+///         .add_row_field("Item")
+///         .add_data_field(PivotTableDataField::new("Volume"));
+/// #
+/// #     // Add the pivot table to a new worksheet.
+/// #     let worksheet = workbook.add_worksheet().set_name("Pivot")?;
+/// #     worksheet.add_pivot_table(0, 0, &pivot_table)?;
+/// #
+/// #     // Save the file to disk.
+/// #     workbook.save("pivot_table.xlsx")?;
+/// #
+/// #     Ok(())
+/// # }
+/// ```
 ///
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum PivotTableLayout {

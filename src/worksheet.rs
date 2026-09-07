@@ -9176,15 +9176,15 @@ impl Worksheet {
     /// #
     /// #     // Add a worksheet with the source data.
     /// #     let worksheet = workbook.add_worksheet().set_name("Data")?;
-    /// #     worksheet.write_row(0, 0, ["Region", "Item", "Volume"])?;
-    /// #     worksheet.write_row(1, 0, ["East", "Apple"])?;
-    /// #     worksheet.write_row(2, 0, ["West", "Apple"])?;
-    /// #     worksheet.write_row(3, 0, ["East", "Pear"])?;
-    /// #     worksheet.write_column(1, 2, [9000, 5000, 7000])?;
+    /// #     worksheet.write_row(0, 0, ["Region", "Item", "Month", "Volume"])?;
+    /// #     worksheet.write_row(1, 0, ["East", "Apple", "July"])?;
+    /// #     worksheet.write_row(2, 0, ["West", "Apple", "April"])?;
+    /// #     worksheet.write_row(3, 0, ["East", "Pear", "July"])?;
+    /// #     worksheet.write_column(1, 3, [9000, 5000, 7000])?;
     /// #
     ///     // Create a pivot table of the volume per region.
     ///     let pivot_table = PivotTable::new()
-    ///         .set_data_source(("Data", 0, 0, 3, 2))
+    ///         .set_data_source(("Data", 0, 0, 3, 3))
     ///         .add_row_field("Region")
     ///         .add_data_field(PivotTableDataField::new("Volume"));
     ///
