@@ -222,6 +222,49 @@ mod pivot_table_tests {
     }
 
     #[test]
+    fn test_assemble_no_subtotals() {
+        // The subtotals of one row field turned off, and those of another
+        // turned off and back on again.
+        let mut pivot_table = PivotTable::new()
+            .add_row_field("Region")
+            .add_row_field("Item")
+            .set_show_field_subtotals("Item", false)
+            .set_show_field_subtotals("Region", false)
+            .set_show_field_subtotals("Region", true)
+            .add_data_field(PivotTableDataField::new("Volume"));
+
+        pivot_table.index = 1;
+        pivot_table.cache_id = 1;
+        pivot_table.set_field_indices(&field_names()).unwrap();
+
+        pivot_table.assemble_xml_file();
+
+        let got = xmlwriter::cursor_to_str(&pivot_table.writer);
+        let got = xml_to_vec(got);
+
+        let expected = xml_to_vec(
+            r#"
+                <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+                <pivotTableDefinition xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" name="PivotTable1" cacheId="1" applyNumberFormats="0" applyBorderFormats="0" applyFontFormats="0" applyPatternFormats="0" applyAlignmentFormats="0" applyWidthHeightFormats="1" dataCaption="Values" updatedVersion="6" minRefreshableVersion="3" useAutoFormatting="1" itemPrintTitles="1" createdVersion="6" indent="0" outline="1" outlineData="1" multipleFieldFilters="0">
+                    <location ref="A1" firstHeaderRow="1" firstDataRow="2" firstDataCol="1"/>
+                    <pivotFields count="4">
+                        <pivotField axis="axisRow" showAll="0"><items count="1"><item t="default"/></items></pivotField>
+                        <pivotField axis="axisRow" showAll="0" defaultSubtotal="0"><items count="1"><item t="default"/></items></pivotField>
+                        <pivotField dataField="1" showAll="0"/>
+                        <pivotField showAll="0"/>
+                    </pivotFields>
+                    <rowFields count="2"><field x="0"/><field x="1"/></rowFields>
+                    <rowItems count="1"><i t="grand"><x/></i></rowItems>
+                    <dataFields count="1"><dataField name="Sum of Volume" fld="2"/></dataFields>
+                    <pivotTableStyleInfo name="PivotStyleLight16" showRowHeaders="1" showColHeaders="1" showRowStripes="0" showColStripes="0" showLastColumn="0"/>
+                </pivotTableDefinition>
+            "#,
+        );
+
+        assert_eq!(expected, got);
+    }
+
+    #[test]
     fn test_assemble3() {
         // Grand totals turned off and a default pivot table name.
         let mut pivot_table = PivotTable::new()

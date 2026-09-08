@@ -91,6 +91,7 @@ pub struct PivotTable {
     pub(crate) column_field_names: Vec<String>,
     pub(crate) filter_field_names: Vec<String>,
     pub(crate) data_fields: Vec<PivotTableDataField>,
+    pub(crate) no_subtotal_field_names: Vec<String>,
 
     // The following properties are set in Workbook::prepare_pivot_tables()
     // once the source data can be read from the workbook.
@@ -102,6 +103,7 @@ pub struct PivotTable {
     pub(crate) row_fields: Vec<usize>,
     pub(crate) column_fields: Vec<usize>,
     pub(crate) filter_fields: Vec<usize>,
+    pub(crate) no_subtotal_fields: Vec<usize>,
 }
 
 impl Default for PivotTable {
@@ -175,6 +177,7 @@ impl PivotTable {
             column_field_names: vec![],
             filter_field_names: vec![],
             data_fields: vec![],
+            no_subtotal_field_names: vec![],
             index: 0,
             cache_id: 0,
             first_row: 0,
@@ -183,6 +186,7 @@ impl PivotTable {
             row_fields: vec![],
             column_fields: vec![],
             filter_fields: vec![],
+            no_subtotal_fields: vec![],
         }
     }
 
@@ -585,6 +589,81 @@ impl PivotTable {
         self
     }
 
+    /// Turn the subtotals of a single field on or off.
+    ///
+    /// A field in the row or column area gets a subtotal row or column of its
+    /// own, unless it is the innermost field of its area. This method turns
+    /// those subtotals off for one field, like the `Subtotals > None` option in
+    /// the Excel field settings.
+    ///
+    /// The usual reason to turn them off is a field whose items are unique,
+    /// such as a date or an id: its subtotal repeats the row it belongs to and
+    /// doubles the length of the report.
+    ///
+    /// Subtotals of the other fields, and the grand totals, are not affected.
+    /// See [`PivotTable::set_show_row_grand_total()`] for the latter.
+    ///
+    /// # Parameters
+    ///
+    /// - `name`: The name of a field in the header row of the source data.
+    /// - `enable`: Turn the subtotals of the field on or off. They are on by
+    ///   default.
+    ///
+    /// # Examples
+    ///
+    /// Example of turning off the subtotals of one field of a pivot table.
+    ///
+    /// ```
+    /// # // This code is available in examples/doc_pivot_table_set_show_field_subtotals.rs
+    /// #
+    /// # use rust_xlsxwriter::{PivotTable, PivotTableDataField, PivotTableLayout, Workbook, XlsxError};
+    /// #
+    /// # fn main() -> Result<(), XlsxError> {
+    /// #     // Create a new Excel file object.
+    /// #     let mut workbook = Workbook::new();
+    /// #
+    /// #     // Add a worksheet with the source data for the pivot table.
+    /// #     let worksheet = workbook.add_worksheet().set_name("Data")?;
+    /// #     worksheet.write_row(0, 0, ["Region", "Item", "Month", "Volume"])?;
+    /// #     worksheet.write_row(1, 0, ["East", "Apple", "July"])?;
+    /// #     worksheet.write_row(2, 0, ["West", "Apple", "April"])?;
+    /// #     worksheet.write_row(3, 0, ["East", "Pear", "July"])?;
+    /// #     worksheet.write_column(1, 3, [9000, 5000, 7000])?;
+    /// #
+    ///     // Create a pivot table where the items keep their subtotal rows but
+    ///     // the months, one per row, do not.
+    ///     let pivot_table = PivotTable::new()
+    ///         .set_data_source(("Data", 0, 0, 3, 3))
+    ///         .set_layout(PivotTableLayout::Tabular)
+    ///         .add_row_field("Region")
+    ///         .add_row_field("Item")
+    ///         .add_row_field("Month")
+    ///         .set_show_field_subtotals("Item", true)
+    ///         .set_show_field_subtotals("Month", false)
+    ///         .add_data_field(PivotTableDataField::new("Volume"));
+    /// #
+    /// #     // Add the pivot table to a new worksheet.
+    /// #     let worksheet = workbook.add_worksheet().set_name("Pivot")?;
+    /// #     worksheet.add_pivot_table(0, 0, &pivot_table)?;
+    /// #
+    /// #     // Save the file to disk.
+    /// #     workbook.save("pivot_table.xlsx")?;
+    /// #
+    /// #     Ok(())
+    /// # }
+    /// ```
+    ///
+    pub fn set_show_field_subtotals(mut self, name: impl Into<String>, enable: bool) -> PivotTable {
+        let name = name.into();
+        self.no_subtotal_field_names.retain(|field| *field != name);
+
+        if !enable {
+            self.no_subtotal_field_names.push(name);
+        }
+
+        self
+    }
+
     /// Add a field to the row area of the pivot table.
     ///
     /// # Parameters
@@ -866,6 +945,7 @@ impl PivotTable {
         self.row_fields = Self::field_indices(&self.row_field_names, field_names)?;
         self.column_fields = Self::field_indices(&self.column_field_names, field_names)?;
         self.filter_fields = Self::field_indices(&self.filter_field_names, field_names)?;
+        self.no_subtotal_fields = Self::field_indices(&self.no_subtotal_field_names, field_names)?;
 
         for data_field in &mut self.data_fields {
             data_field.field_index = Self::field_index(&data_field.field_name, field_names)?;
@@ -1060,6 +1140,12 @@ impl PivotTable {
                 }
 
                 attributes.push(("showAll", "0"));
+
+                // A field can drop the subtotal that it gets by default.
+                if self.no_subtotal_fields.contains(&index) {
+                    attributes.push(("defaultSubtotal", "0"));
+                }
+
                 xml_start_tag(&mut self.writer, "pivotField", &attributes);
 
                 // Write the placeholder items element. The real items are added
