@@ -85,6 +85,7 @@ pub struct PivotTable {
     pub(crate) layout: PivotTableLayout,
     pub(crate) show_row_grand_totals: bool,
     pub(crate) show_column_grand_totals: bool,
+    pub(crate) subtotal_caption: String,
 
     pub(crate) row_field_names: Vec<String>,
     pub(crate) column_field_names: Vec<String>,
@@ -169,6 +170,7 @@ impl PivotTable {
             layout: PivotTableLayout::Compact,
             show_row_grand_totals: true,
             show_column_grand_totals: true,
+            subtotal_caption: String::new(),
             row_field_names: vec![],
             column_field_names: vec![],
             filter_field_names: vec![],
@@ -517,6 +519,69 @@ impl PivotTable {
     ///
     pub fn set_show_column_grand_total(mut self, enable: bool) -> PivotTable {
         self.show_column_grand_totals = enable;
+        self
+    }
+
+    /// Set the caption used in the subtotal rows and columns.
+    ///
+    /// Excel labels a subtotal with the name of the item it belongs to
+    /// followed by a word from the language of the application, such as `East
+    /// Total`. This method replaces that word, which is required for
+    /// non-English workbooks and for reports that use a term of their own,
+    /// such as `East Subtotal`.
+    ///
+    /// The caption applies to the fields in the row and column areas. The item
+    /// name is always written first, by the application, and its position
+    /// cannot be changed.
+    ///
+    /// # Parameters
+    ///
+    /// - `caption`: The word used in the subtotal rows and columns.
+    ///
+    /// # Examples
+    ///
+    /// Example of setting the subtotal caption of a pivot table.
+    ///
+    /// ```
+    /// # // This code is available in examples/doc_pivot_table_set_subtotal_caption.rs
+    /// #
+    /// # use rust_xlsxwriter::{PivotTable, PivotTableDataField, PivotTableLayout, Workbook, XlsxError};
+    /// #
+    /// # fn main() -> Result<(), XlsxError> {
+    /// #     // Create a new Excel file object.
+    /// #     let mut workbook = Workbook::new();
+    /// #
+    /// #     // Add a worksheet with the source data for the pivot table.
+    /// #     let worksheet = workbook.add_worksheet().set_name("Data")?;
+    /// #     worksheet.write_row(0, 0, ["Region", "Item", "Month", "Volume"])?;
+    /// #     worksheet.write_row(1, 0, ["East", "Apple", "July"])?;
+    /// #     worksheet.write_row(2, 0, ["West", "Apple", "April"])?;
+    /// #     worksheet.write_row(3, 0, ["East", "Pear", "July"])?;
+    /// #     worksheet.write_column(1, 3, [9000, 5000, 7000])?;
+    /// #
+    ///     // Create a pivot table whose subtotal rows read "East Subtotal"
+    ///     // instead of the default "East Total".
+    ///     let pivot_table = PivotTable::new()
+    ///         .set_data_source(("Data", 0, 0, 3, 3))
+    ///         .set_layout(PivotTableLayout::Tabular)
+    ///         .set_subtotal_caption("Subtotal")
+    ///         .add_row_field("Region")
+    ///         .add_row_field("Item")
+    ///         .add_data_field(PivotTableDataField::new("Volume"));
+    /// #
+    /// #     // Add the pivot table to a new worksheet.
+    /// #     let worksheet = workbook.add_worksheet().set_name("Pivot")?;
+    /// #     worksheet.add_pivot_table(0, 0, &pivot_table)?;
+    /// #
+    /// #     // Save the file to disk.
+    /// #     workbook.save("pivot_table.xlsx")?;
+    /// #
+    /// #     Ok(())
+    /// # }
+    /// ```
+    ///
+    pub fn set_subtotal_caption(mut self, caption: impl Into<String>) -> PivotTable {
+        self.subtotal_caption = caption.into();
         self
     }
 
@@ -976,6 +1041,13 @@ impl PivotTable {
         match axis {
             Some(axis) => {
                 let mut attributes = vec![("axis", axis)];
+
+                // The subtotal caption only applies to the areas that have
+                // subtotals, which are the row and column areas.
+                let subtotal_caption = self.subtotal_caption.clone();
+                if !subtotal_caption.is_empty() && axis != "axisPage" {
+                    attributes.push(("subtotalCaption", subtotal_caption.as_str()));
+                }
 
                 // The layout of a pivot field only applies to the row area.
                 if axis == "axisRow" && self.layout != PivotTableLayout::Compact {
