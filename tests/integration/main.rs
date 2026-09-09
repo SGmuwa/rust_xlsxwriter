@@ -1019,6 +1019,8 @@ mod page_view02;
 mod page_view03;
 mod pivot_table01;
 mod pivot_table02;
+mod pivot_table03;
+mod pivot_table04;
 mod print_across01;
 mod print_area01;
 mod print_area02;

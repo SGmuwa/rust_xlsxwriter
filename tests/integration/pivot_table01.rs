@@ -44,6 +44,8 @@ fn create_new_xlsx_file(filename: &str) -> Result<(), XlsxError> {
 
     let pivot_table = PivotTable::new()
         .set_name("ItemsByRegion")
+        .set_field_values(false)
+        .set_extent(false)
         .set_data_source(("Data", 0, 0, 50, 3))
         .set_style(PivotTableStyle::Medium9)
         .add_row_field("Region")

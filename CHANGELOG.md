@@ -16,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   values. The file is flagged with `refreshOnLoad` so that the application that
   opens it, Excel or `LibreOffice`, calculates the summary from the source data.
 
+  To allow applications that don't recalculate the summary to display the pivot
+  table, the distinct values of the fields used on an axis and an estimate of
+  the extent of the pivot table are written to the file as well. Both can be
+  turned off with `PivotTable::set_field_values()` and
+  `PivotTable::set_extent()`.
+
   [Issue #53]: https://github.com/jmcnamara/rust_xlsxwriter/issues/53
 
 

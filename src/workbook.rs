@@ -2833,6 +2833,11 @@ impl Workbook {
         let mut pivot_table_id = 1;
         let mut seen_names = HashSet::new();
 
+        // The fields that the pivot tables use on an axis. Only these need
+        // their distinct values written to the pivot cache.
+        let mut cache_field_usage: Vec<HashSet<usize>> =
+            vec![HashSet::new(); self.pivot_caches.len()];
+
         // The data field number formats are appended to the workbook number
         // formats, which are written to styles.xml starting at index 164.
         let mut num_formats = std::mem::take(&mut self.num_formats);
@@ -2847,7 +2852,20 @@ impl Workbook {
 
                 pivot_table.index = pivot_table_id;
                 pivot_table.cache_id = cache_index as u32 + 1;
+                pivot_table.record_count = key.3 - key.1;
                 pivot_table.set_field_indices(&cache_fields[cache_index])?;
+
+                // The extent of the pivot table is derived from the number of
+                // values of the column fields, so it needs them as well.
+                if pivot_table.write_field_values || pivot_table.write_extent {
+                    let fields = pivot_table
+                        .row_fields
+                        .iter()
+                        .chain(&pivot_table.column_fields)
+                        .chain(&pivot_table.filter_fields);
+
+                    cache_field_usage[cache_index].extend(fields);
+                }
 
                 for data_field in &mut pivot_table.data_fields {
                     if data_field.num_format.is_empty() {
@@ -2887,6 +2905,66 @@ impl Workbook {
         }
 
         self.num_formats = num_formats;
+
+        self.prepare_pivot_cache_values(&cache_keys, &cache_field_usage)
+    }
+
+    // Read the distinct values of the pivot cache fields that the pivot tables
+    // use on an axis, and hand the number of values of each field back to the
+    // pivot tables. Applications other than Excel and LibreOffice need the
+    // values to display the pivot table.
+    fn prepare_pivot_cache_values(
+        &mut self,
+        cache_keys: &[(String, RowNum, ColNum, RowNum, ColNum)],
+        cache_field_usage: &[HashSet<usize>],
+    ) -> Result<(), XlsxError> {
+        let mut cache_field_values = vec![];
+
+        for (cache_index, key) in cache_keys.iter().enumerate() {
+            let (sheet_name, first_row, first_col, last_row, _) = key;
+            let num_fields = self.pivot_caches[cache_index].field_names.len();
+            let mut field_values = vec![vec![]; num_fields];
+
+            if !cache_field_usage[cache_index].is_empty() {
+                // The worksheet was looked up successfully above.
+                let worksheet = self.worksheet_from_name(sheet_name)?;
+
+                for field_index in &cache_field_usage[cache_index] {
+                    let col_num = first_col + *field_index as ColNum;
+
+                    // The header row isn't one of the values of the field.
+                    field_values[*field_index] =
+                        worksheet.get_pivot_field_values(first_row + 1, *last_row, col_num);
+                }
+            }
+
+            cache_field_values.push(field_values);
+        }
+
+        // The pivot tables need the number of values of each field to write
+        // their field items and to calculate their extent.
+        let item_counts: Vec<Vec<usize>> = cache_field_values
+            .iter()
+            .map(|field_values| field_values.iter().map(Vec::len).collect())
+            .collect();
+
+        for (cache, field_values) in self.pivot_caches.iter_mut().zip(cache_field_values) {
+            cache.field_values = field_values;
+        }
+
+        for worksheet in &mut self.worksheets {
+            for pivot_table in &mut worksheet.pivot_tables {
+                let key = pivot_table.data_source.key();
+                let cache_index = cache_keys
+                    .iter()
+                    .position(|k| *k == key)
+                    .unwrap_or_default();
+
+                pivot_table
+                    .field_item_counts
+                    .clone_from(&item_counts[cache_index]);
+            }
+        }
 
         Ok(())
     }

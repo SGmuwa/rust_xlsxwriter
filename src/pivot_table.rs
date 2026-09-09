@@ -11,6 +11,7 @@ mod tests;
 use std::fmt;
 use std::io::Cursor;
 
+use crate::worksheet::{COL_MAX, ROW_MAX};
 use crate::xmlwriter::{
     xml_declaration, xml_empty_tag, xml_empty_tag_only, xml_end_tag, xml_start_tag,
 };
@@ -69,6 +70,13 @@ use crate::{utility, ChartRange, ColNum, IntoChartRange, RowNum, XlsxError};
 /// source data when the file is loaded. As a result the cells of the pivot
 /// table are only populated after the file has been opened once.
 ///
+/// Applications that don't recalculate the summary, such as the file previews
+/// of webmail clients, display the pivot table from the definition alone. For
+/// those `rust_xlsxwriter` also writes the distinct values of the fields that
+/// the pivot table uses on an axis, see
+/// [`PivotTable::set_field_values()`], and an estimate of the range of cells
+/// that the pivot table will occupy, see [`PivotTable::set_extent()`].
+///
 /// For more information on pivot tables see the Microsoft documentation on
 /// [Create a PivotTable to analyze worksheet data].
 ///
@@ -92,6 +100,9 @@ pub struct PivotTable {
     pub(crate) filter_field_names: Vec<String>,
     pub(crate) data_fields: Vec<PivotTableDataField>,
     pub(crate) no_subtotal_field_names: Vec<String>,
+    pub(crate) write_field_values: bool,
+    pub(crate) write_extent: bool,
+    pub(crate) extent_rows: Option<u32>,
 
     // The following properties are set in Workbook::prepare_pivot_tables()
     // once the source data can be read from the workbook.
@@ -100,6 +111,8 @@ pub struct PivotTable {
     pub(crate) first_row: RowNum,
     pub(crate) first_col: ColNum,
     pub(crate) num_fields: usize,
+    pub(crate) record_count: RowNum,
+    pub(crate) field_item_counts: Vec<usize>,
     pub(crate) row_fields: Vec<usize>,
     pub(crate) column_fields: Vec<usize>,
     pub(crate) filter_fields: Vec<usize>,
@@ -178,11 +191,16 @@ impl PivotTable {
             filter_field_names: vec![],
             data_fields: vec![],
             no_subtotal_field_names: vec![],
+            write_field_values: true,
+            write_extent: true,
+            extent_rows: None,
             index: 0,
             cache_id: 0,
             first_row: 0,
             first_col: 0,
             num_fields: 0,
+            record_count: 0,
+            field_item_counts: vec![],
             row_fields: vec![],
             column_fields: vec![],
             filter_fields: vec![],
@@ -868,31 +886,28 @@ impl PivotTable {
         self
     }
 
-    /// Write the pivot cache records to the file.
+    /// Write the distinct values of the pivot table fields to the file.
     ///
-    /// Excel stores a copy of the pivot table source data in the file, in a
-    /// "pivot cache records" part, so that the pivot table can be displayed
-    /// without recalculating it from the source data.
+    /// Excel stores the distinct values of each source field, such as the
+    /// four regions of a "Region" field, in the pivot cache definition of the
+    /// file. It recreates them from the source data when it opens a file that
+    /// doesn't have them, and so does `LibreOffice`, but other applications
+    /// don't: they display the pivot table as a `#REF!` error instead.
     ///
-    /// `rust_xlsxwriter` doesn't currently write this part. Instead the file is
-    /// flagged so that the application that opens it recreates the cache, and
-    /// the pivot table values, from the source data.
+    /// `rust_xlsxwriter` writes the values by default. They are only needed
+    /// for the fields that the pivot table uses in the row, column or filter
+    /// areas, so only those are written.
     ///
     /// # Parameters
     ///
-    /// - `enable`: Turn the property on/off. It is off by default.
-    ///
-    /// # Errors
-    ///
-    /// - [`XlsxError::PivotTableError`] - This method isn't implemented yet and
-    ///   returns an error if `enable` is set to `true`.
+    /// - `enable`: Turn the property on/off. It is on by default.
     ///
     /// # Examples
     ///
-    /// Example of turning the pivot cache records off, which is the default.
+    /// Example of turning off the distinct values of the pivot table fields.
     ///
     /// ```
-    /// # // This code is available in examples/doc_pivot_table_set_cache_data.rs
+    /// # // This code is available in examples/doc_pivot_table_set_field_values.rs
     /// #
     /// # use rust_xlsxwriter::{PivotTable, PivotTableDataField, Workbook, XlsxError};
     /// #
@@ -908,11 +923,11 @@ impl PivotTable {
     /// #     worksheet.write_row(3, 0, ["East", "Pear", "July"])?;
     /// #     worksheet.write_column(1, 3, [9000, 5000, 7000])?;
     /// #
-    ///     // Create a pivot table. Writing the pivot cache records isn't implemented
-    ///     // so they can only be turned off, which is also the default.
+    ///     // Create a pivot table that leaves the field values to the
+    ///     // application that opens the file.
     ///     let pivot_table = PivotTable::new()
     ///         .set_data_source(("Data", 0, 0, 3, 3))
-    ///         .set_cache_data(false)?
+    ///         .set_field_values(false)
     ///         .add_row_field("Region")
     ///         .add_data_field(PivotTableDataField::new("Volume"));
     /// #
@@ -927,7 +942,204 @@ impl PivotTable {
     /// # }
     /// ```
     ///
-    pub fn set_cache_data(self, enable: bool) -> Result<PivotTable, XlsxError> {
+    pub fn set_field_values(mut self, enable: bool) -> PivotTable {
+        self.write_field_values = enable;
+        self
+    }
+
+    /// Write the extent of the pivot table to the file.
+    ///
+    /// A pivot table declares the range of cells that it occupies. The size of
+    /// that range isn't known until the pivot table has been summarized, so
+    /// `rust_xlsxwriter` writes an estimate of it that is never smaller than
+    /// the final size. Excel and `LibreOffice` replace the estimate with the
+    /// real extent when they open the file, but other applications don't: they
+    /// display the pivot table as a `#REF!` error unless the extent is big
+    /// enough to hold it.
+    ///
+    /// `rust_xlsxwriter` writes the extent by default. Turning it off writes
+    /// the top left cell of the pivot table on its own, which is what Excel
+    /// itself writes for a pivot table that hasn't been summarized yet.
+    ///
+    /// The estimate assumes that every row of the source data adds a row to
+    /// the pivot table, which is a safe upper bound but a generous one. Use
+    /// [`PivotTable::set_extent_rows()`] to replace it with a known value.
+    ///
+    /// # Parameters
+    ///
+    /// - `enable`: Turn the property on/off. It is on by default.
+    ///
+    /// # Examples
+    ///
+    /// Example of turning off the extent of the pivot table.
+    ///
+    /// ```
+    /// # // This code is available in examples/doc_pivot_table_set_extent.rs
+    /// #
+    /// # use rust_xlsxwriter::{PivotTable, PivotTableDataField, Workbook, XlsxError};
+    /// #
+    /// # fn main() -> Result<(), XlsxError> {
+    /// #     // Create a new Excel file object.
+    /// #     let mut workbook = Workbook::new();
+    /// #
+    /// #     // Add a worksheet with the source data for the pivot table.
+    /// #     let worksheet = workbook.add_worksheet().set_name("Data")?;
+    /// #     worksheet.write_row(0, 0, ["Region", "Item", "Month", "Volume"])?;
+    /// #     worksheet.write_row(1, 0, ["East", "Apple", "July"])?;
+    /// #     worksheet.write_row(2, 0, ["West", "Apple", "April"])?;
+    /// #     worksheet.write_row(3, 0, ["East", "Pear", "July"])?;
+    /// #     worksheet.write_column(1, 3, [9000, 5000, 7000])?;
+    /// #
+    ///     // Create a pivot table that leaves its extent to the application
+    ///     // that opens the file.
+    ///     let pivot_table = PivotTable::new()
+    ///         .set_data_source(("Data", 0, 0, 3, 3))
+    ///         .set_extent(false)
+    ///         .add_row_field("Region")
+    ///         .add_data_field(PivotTableDataField::new("Volume"));
+    /// #
+    /// #     // Add the pivot table to a new worksheet.
+    /// #     let worksheet = workbook.add_worksheet().set_name("Pivot")?;
+    /// #     worksheet.add_pivot_table(0, 0, &pivot_table)?;
+    /// #
+    /// #     // Save the file to disk.
+    /// #     workbook.save("pivot_table.xlsx")?;
+    /// #
+    /// #     Ok(())
+    /// # }
+    /// ```
+    ///
+    pub fn set_extent(mut self, enable: bool) -> PivotTable {
+        self.write_extent = enable;
+        self
+    }
+
+    /// Set the number of rows in the extent of the pivot table.
+    ///
+    /// The extent written by [`PivotTable::set_extent()`] uses an estimate of
+    /// the number of rows that the pivot table will occupy. The estimate is
+    /// never too small, since a pivot table that is bigger than its extent
+    /// displays as a `#REF!` error, but for source data with a lot of repeated
+    /// values it is a lot bigger than the pivot table turns out to be.
+    ///
+    /// This method replaces the estimate with a caller supplied value, for the
+    /// cases where the number of rows of the summary is known in advance. An
+    /// extent that is too small displays as an error, so prefer a value that
+    /// is too big to one that might be too small.
+    ///
+    /// The row count includes the header row and the grand total row.
+    ///
+    /// # Parameters
+    ///
+    /// - `rows`: The number of rows in the pivot table.
+    ///
+    /// # Examples
+    ///
+    /// Example of setting the number of rows in the extent of a pivot table.
+    ///
+    /// ```
+    /// # // This code is available in examples/doc_pivot_table_set_extent_rows.rs
+    /// #
+    /// # use rust_xlsxwriter::{PivotTable, PivotTableDataField, Workbook, XlsxError};
+    /// #
+    /// # fn main() -> Result<(), XlsxError> {
+    /// #     // Create a new Excel file object.
+    /// #     let mut workbook = Workbook::new();
+    /// #
+    /// #     // Add a worksheet with the source data for the pivot table.
+    /// #     let worksheet = workbook.add_worksheet().set_name("Data")?;
+    /// #     worksheet.write_row(0, 0, ["Region", "Item", "Month", "Volume"])?;
+    /// #     worksheet.write_row(1, 0, ["East", "Apple", "July"])?;
+    /// #     worksheet.write_row(2, 0, ["West", "Apple", "April"])?;
+    /// #     worksheet.write_row(3, 0, ["East", "Pear", "July"])?;
+    /// #     worksheet.write_column(1, 3, [9000, 5000, 7000])?;
+    /// #
+    ///     // Create a pivot table. The two regions give a header row, two data
+    ///     // rows and a grand total row.
+    ///     let pivot_table = PivotTable::new()
+    ///         .set_data_source(("Data", 0, 0, 3, 3))
+    ///         .set_extent_rows(4)
+    ///         .add_row_field("Region")
+    ///         .add_data_field(PivotTableDataField::new("Volume"));
+    /// #
+    /// #     // Add the pivot table to a new worksheet.
+    /// #     let worksheet = workbook.add_worksheet().set_name("Pivot")?;
+    /// #     worksheet.add_pivot_table(0, 0, &pivot_table)?;
+    /// #
+    /// #     // Save the file to disk.
+    /// #     workbook.save("pivot_table.xlsx")?;
+    /// #
+    /// #     Ok(())
+    /// # }
+    /// ```
+    ///
+    pub fn set_extent_rows(mut self, rows: u32) -> PivotTable {
+        self.extent_rows = Some(rows);
+        self
+    }
+
+    /// Write the pivot cache records to the file.
+    ///
+    /// Excel can store a row by row copy of the pivot table source data in the
+    /// file, in a "pivot cache records" part, so that the pivot table can be
+    /// summarized without reading the source data again.
+    ///
+    /// `rust_xlsxwriter` doesn't write this part. Instead the file is flagged
+    /// so that the application that opens it summarizes the pivot table from
+    /// the source range, which is also what Excel does when it saves a file
+    /// with the "Save source data with file" option turned off.
+    ///
+    /// # Parameters
+    ///
+    /// - `enable`: Turn the property on/off. It is off by default.
+    ///
+    /// # Errors
+    ///
+    /// - [`XlsxError::PivotTableError`] - This method isn't implemented yet and
+    ///   returns an error if `enable` is set to `true`.
+    ///
+    /// # Examples
+    ///
+    /// Example of turning the pivot cache records off, which is the default.
+    ///
+    /// ```
+    /// # // This code is available in examples/doc_pivot_table_set_cache_records.rs
+    /// #
+    /// # use rust_xlsxwriter::{PivotTable, PivotTableDataField, Workbook, XlsxError};
+    /// #
+    /// # fn main() -> Result<(), XlsxError> {
+    /// #     // Create a new Excel file object.
+    /// #     let mut workbook = Workbook::new();
+    /// #
+    /// #     // Add a worksheet with the source data for the pivot table.
+    /// #     let worksheet = workbook.add_worksheet().set_name("Data")?;
+    /// #     worksheet.write_row(0, 0, ["Region", "Item", "Month", "Volume"])?;
+    /// #     worksheet.write_row(1, 0, ["East", "Apple", "July"])?;
+    /// #     worksheet.write_row(2, 0, ["West", "Apple", "April"])?;
+    /// #     worksheet.write_row(3, 0, ["East", "Pear", "July"])?;
+    /// #     worksheet.write_column(1, 3, [9000, 5000, 7000])?;
+    /// #
+    ///     // Create a pivot table. Writing the pivot cache records isn't
+    ///     // implemented so they can only be turned off, which is also the
+    ///     // default.
+    ///     let pivot_table = PivotTable::new()
+    ///         .set_data_source(("Data", 0, 0, 3, 3))
+    ///         .set_cache_records(false)?
+    ///         .add_row_field("Region")
+    ///         .add_data_field(PivotTableDataField::new("Volume"));
+    /// #
+    /// #     // Add the pivot table to a new worksheet.
+    /// #     let worksheet = workbook.add_worksheet().set_name("Pivot")?;
+    /// #     worksheet.add_pivot_table(0, 0, &pivot_table)?;
+    /// #
+    /// #     // Save the file to disk.
+    /// #     workbook.save("pivot_table.xlsx")?;
+    /// #
+    /// #     Ok(())
+    /// # }
+    /// ```
+    ///
+    pub fn set_cache_records(self, enable: bool) -> Result<PivotTable, XlsxError> {
         if enable {
             return Err(XlsxError::PivotTableError(
                 "Writing the pivot cache records is not implemented".to_string(),
@@ -1080,16 +1292,83 @@ impl PivotTable {
 
     // Write the <location> element.
     fn write_location(&mut self) {
-        let cell = utility::row_col_to_cell(self.first_row, self.first_col);
+        let range = if self.write_extent {
+            // The filter fields sit above the pivot table and aren't part of
+            // its range.
+            let first_row = self.first_row + self.filter_fields.len() as RowNum;
+            let (last_row, last_col) = self.extent(first_row);
+
+            utility::cell_range(first_row, self.first_col, last_row, last_col)
+        } else {
+            utility::row_col_to_cell(self.first_row, self.first_col)
+        };
 
         let attributes = [
-            ("ref", cell),
+            ("ref", range),
             ("firstHeaderRow", "1".to_string()),
             ("firstDataRow", "2".to_string()),
             ("firstDataCol", "1".to_string()),
         ];
 
         xml_empty_tag(&mut self.writer, "location", &attributes);
+    }
+
+    // Calculate the bottom right cell of the range that the pivot table will
+    // occupy once it has been summarized.
+    //
+    // The real size isn't known until the summary has been calculated, which
+    // the library doesn't do, so this is an upper bound: a pivot table that is
+    // smaller than its extent is displayed correctly, one that is bigger is
+    // displayed as a `#REF!` error.
+    fn extent(&self, first_row: RowNum) -> (RowNum, ColNum) {
+        let num_rows = match self.extent_rows {
+            Some(rows) => u64::from(rows).max(1),
+            None => {
+                // Assume the worst case, that every source record adds a row
+                // to the pivot table and a subtotal row to each of the row
+                // fields that have subtotals.
+                let subtotal_fields = self
+                    .row_fields
+                    .iter()
+                    .filter(|index| !self.no_subtotal_fields.contains(index))
+                    .count() as u64;
+                let records = u64::from(self.record_count);
+
+                // The header rows, the data rows, the subtotals and the grand
+                // total row.
+                1 + self.column_fields.len() as u64
+                    + records
+                    + records.saturating_mul(subtotal_fields)
+                    + 1
+            }
+        };
+
+        // In the compact layout the row fields share a single column.
+        let row_columns = if self.layout == PivotTableLayout::Compact {
+            1
+        } else {
+            self.row_fields.len().max(1) as u64
+        };
+
+        // Each combination of the column field values repeats the data fields.
+        let data_columns = self.data_fields.len().max(1) as u64;
+        let combinations = self.column_fields.iter().fold(1u64, |product, index| {
+            let count = self.field_item_counts.get(*index).copied().unwrap_or(1);
+            product.saturating_mul(count.max(1) as u64)
+        });
+
+        let mut num_columns = row_columns + data_columns.saturating_mul(combinations);
+
+        // The column fields also get a grand total column per data field.
+        if !self.column_fields.is_empty() {
+            num_columns += data_columns;
+        }
+
+        let last_row = (u64::from(first_row) + num_rows - 1).min(u64::from(ROW_MAX) - 1) as RowNum;
+        let last_col =
+            (u64::from(self.first_col) + num_columns - 1).min(u64::from(COL_MAX) - 1) as ColNum;
+
+        (last_row, last_col)
     }
 
     // Write the <pivotFields> element.
@@ -1148,9 +1427,8 @@ impl PivotTable {
 
                 xml_start_tag(&mut self.writer, "pivotField", &attributes);
 
-                // Write the placeholder items element. The real items are added
-                // by the application that opens the file.
-                self.write_default_items();
+                // Write the items element with the values of the field.
+                self.write_items(index);
 
                 xml_end_tag(&mut self.writer, "pivotField");
             }
@@ -1171,14 +1449,40 @@ impl PivotTable {
         }
     }
 
-    // Write the <items> element with a single default item.
-    fn write_default_items(&mut self) {
-        let attributes = [("count", "1")];
+    // Write the <items> element of a pivot field.
+    //
+    // The items index into the values of the field in the pivot cache, in the
+    // same order, followed by the "default" item that stands for the subtotal
+    // of the field. Without the values only the placeholder default item is
+    // written and the real items are added by the application that opens the
+    // file.
+    fn write_items(&mut self, index: usize) {
+        let num_items = if self.write_field_values {
+            self.field_item_counts
+                .get(index)
+                .copied()
+                .unwrap_or_default()
+        } else {
+            0
+        };
 
+        // A field without subtotals has no default item, but the placeholder
+        // is written for all fields since it stands in for the real items.
+        let has_default = num_items == 0 || !self.no_subtotal_fields.contains(&index);
+        let count = num_items + usize::from(has_default);
+
+        let attributes = [("count", count.to_string())];
         xml_start_tag(&mut self.writer, "items", &attributes);
 
-        let attributes = [("t", "default")];
-        xml_empty_tag(&mut self.writer, "item", &attributes);
+        for item in 0..num_items {
+            let attributes = [("x", item.to_string())];
+            xml_empty_tag(&mut self.writer, "item", &attributes);
+        }
+
+        if has_default {
+            let attributes = [("t", "default")];
+            xml_empty_tag(&mut self.writer, "item", &attributes);
+        }
 
         xml_end_tag(&mut self.writer, "items");
     }

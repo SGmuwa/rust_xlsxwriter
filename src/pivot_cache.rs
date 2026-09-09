@@ -6,6 +6,7 @@
 
 mod tests;
 
+use std::cmp::Ordering;
 use std::io::Cursor;
 
 use crate::utility;
@@ -15,7 +16,8 @@ use crate::xmlwriter::{
 use crate::{ColNum, RowNum};
 
 // A pivot cache definition holds the metadata for the source data of one or
-// more pivot tables: the source range and the names of the source fields.
+// more pivot tables: the source range, the names of the source fields and the
+// distinct values of the fields that the pivot tables use on an axis.
 //
 // The associated pivot cache records file, which is a row by row copy of the
 // source data, isn't written. Instead the definition is marked with
@@ -31,6 +33,10 @@ pub(crate) struct PivotCache {
     pub(crate) last_row: RowNum,
     pub(crate) last_col: ColNum,
     pub(crate) field_names: Vec<String>,
+
+    // The distinct values of each field, in the same order as `field_names`.
+    // A field that no pivot table uses on an axis has an empty list.
+    pub(crate) field_values: Vec<Vec<PivotFieldValue>>,
 }
 
 impl PivotCache {
@@ -56,6 +62,7 @@ impl PivotCache {
             last_row,
             last_col,
             field_names: vec![],
+            field_values: vec![],
         }
     }
 
@@ -133,24 +140,137 @@ impl PivotCache {
 
         xml_start_tag(&mut self.writer, "cacheFields", &attributes);
 
-        for name in self.field_names.clone() {
+        for (index, name) in self.field_names.clone().iter().enumerate() {
+            let values = self.field_values.get(index).cloned().unwrap_or_default();
+
             // Write the cacheField element.
-            self.write_cache_field(&name);
+            self.write_cache_field(name, &values);
         }
 
         xml_end_tag(&mut self.writer, "cacheFields");
     }
 
     // Write the <cacheField> element.
-    fn write_cache_field(&mut self, name: &str) {
+    fn write_cache_field(&mut self, name: &str, values: &[PivotFieldValue]) {
         let attributes = [("name", name), ("numFmtId", "0")];
 
         xml_start_tag(&mut self.writer, "cacheField", &attributes);
 
-        // The shared items are left empty since they are recreated by the
-        // application that opens the file, see the struct docs.
-        xml_empty_tag_only(&mut self.writer, "sharedItems");
+        // Write the sharedItems element.
+        self.write_shared_items(values);
 
         xml_end_tag(&mut self.writer, "cacheField");
+    }
+
+    // Write the <sharedItems> element with the distinct values of the field.
+    //
+    // Excel recreates these values from the source data when it opens the
+    // file, but other applications don't: without them they display the pivot
+    // table as a `#REF!` error. Fields that aren't used on an axis of a pivot
+    // table don't need the values and are left empty.
+    fn write_shared_items(&mut self, values: &[PivotFieldValue]) {
+        if values.is_empty() {
+            xml_empty_tag_only(&mut self.writer, "sharedItems");
+            return;
+        }
+
+        let has_blank = values.contains(&PivotFieldValue::Blank);
+        let has_string = values
+            .iter()
+            .any(|value| matches!(value, PivotFieldValue::String(_)));
+        let numbers: Vec<f64> = values
+            .iter()
+            .filter_map(|value| match value {
+                PivotFieldValue::Number(number) => Some(*number),
+                _ => None,
+            })
+            .collect();
+
+        let mut attributes = vec![("count", values.len().to_string())];
+
+        if has_blank {
+            attributes.push(("containsBlank", "1".to_string()));
+        }
+
+        if !numbers.is_empty() {
+            attributes.push(("containsNumber", "1".to_string()));
+
+            if has_string {
+                attributes.push(("containsMixedTypes", "1".to_string()));
+            } else {
+                attributes.push(("containsString", "0".to_string()));
+
+                if !has_blank {
+                    attributes.push(("containsSemiMixedTypes", "0".to_string()));
+                }
+
+                let min = numbers.iter().copied().fold(f64::INFINITY, f64::min);
+                let max = numbers.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+                attributes.push(("minValue", min.to_string()));
+                attributes.push(("maxValue", max.to_string()));
+            }
+        }
+
+        xml_start_tag(&mut self.writer, "sharedItems", &attributes);
+
+        for value in values {
+            match value {
+                PivotFieldValue::Blank => xml_empty_tag_only(&mut self.writer, "m"),
+                PivotFieldValue::Boolean(boolean) => {
+                    let attributes = [("v", u8::from(*boolean).to_string())];
+                    xml_empty_tag(&mut self.writer, "b", &attributes);
+                }
+                PivotFieldValue::Number(number) => {
+                    let attributes = [("v", number.to_string())];
+                    xml_empty_tag(&mut self.writer, "n", &attributes);
+                }
+                PivotFieldValue::String(string) => {
+                    let attributes = [("v", string.clone())];
+                    xml_empty_tag(&mut self.writer, "s", &attributes);
+                }
+            }
+        }
+
+        xml_end_tag(&mut self.writer, "sharedItems");
+    }
+}
+
+// -----------------------------------------------------------------------
+// PivotFieldValue
+// -----------------------------------------------------------------------
+
+// One distinct value of a pivot cache field. The variants map onto the child
+// elements of `<sharedItems>`.
+#[derive(Clone, PartialEq)]
+pub(crate) enum PivotFieldValue {
+    Blank,
+    Boolean(bool),
+    Number(f64),
+    String(String),
+}
+
+impl PivotFieldValue {
+    // Order the values of a field into ascending order, with the blanks last.
+    // The pivot table rows of an application that doesn't sort the values
+    // itself follow this order.
+    pub(crate) fn compare(&self, other: &PivotFieldValue) -> Ordering {
+        match (self, other) {
+            (PivotFieldValue::Number(value), PivotFieldValue::Number(other)) => {
+                value.total_cmp(other)
+            }
+            (PivotFieldValue::Boolean(value), PivotFieldValue::Boolean(other)) => value.cmp(other),
+            (PivotFieldValue::String(value), PivotFieldValue::String(other)) => value.cmp(other),
+            _ => self.type_order().cmp(&other.type_order()),
+        }
+    }
+
+    // The relative order of the value types.
+    fn type_order(&self) -> u8 {
+        match self {
+            PivotFieldValue::Number(_) => 0,
+            PivotFieldValue::Boolean(_) => 1,
+            PivotFieldValue::String(_) => 2,
+            PivotFieldValue::Blank => 3,
+        }
     }
 }

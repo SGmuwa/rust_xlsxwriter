@@ -1388,6 +1388,7 @@ use crate::drawing::{Drawing, DrawingCoordinates, DrawingInfo, DrawingObject, Dr
 use crate::error::XlsxError;
 use crate::format::Format;
 use crate::formula::Formula;
+use crate::pivot_cache::PivotFieldValue;
 use crate::shared_strings_table::SharedStringsTable;
 use crate::styles::Styles;
 use crate::vml::VmlInfo;
@@ -17378,6 +17379,56 @@ impl Worksheet {
 
         cache.data = data;
         cache
+    }
+
+    // Return the distinct values of one column of the worksheet, sorted into
+    // ascending order, for the shared items of a pivot cache field.
+    pub(crate) fn get_pivot_field_values(
+        &self,
+        first_row: RowNum,
+        last_row: RowNum,
+        col_num: ColNum,
+    ) -> Vec<PivotFieldValue> {
+        let mut values = vec![];
+
+        for row_num in first_row..=last_row {
+            let cell = self
+                .data_table
+                .get(&row_num)
+                .and_then(|columns| columns.get(&col_num));
+
+            let value = match cell {
+                Some(
+                    CellType::String { string, .. }
+                    | CellType::RichString { string, .. }
+                    | CellType::InlineString { string, .. },
+                ) => PivotFieldValue::String(string.to_string()),
+
+                Some(CellType::Number { number, .. } | CellType::DateTime { number, .. }) => {
+                    PivotFieldValue::Number(*number)
+                }
+
+                Some(CellType::Boolean { boolean, .. }) => PivotFieldValue::Boolean(*boolean),
+
+                // A formula contributes its cached result, if it has one.
+                Some(CellType::Formula { result, .. } | CellType::ArrayFormula { result, .. }) => {
+                    match result.parse::<f64>() {
+                        Ok(number) => PivotFieldValue::Number(number),
+                        Err(_) if result.is_empty() => PivotFieldValue::Blank,
+                        Err(_) => PivotFieldValue::String(result.to_string()),
+                    }
+                }
+
+                _ => PivotFieldValue::Blank,
+            };
+
+            values.push(value);
+        }
+
+        values.sort_by(PivotFieldValue::compare);
+        values.dedup();
+
+        values
     }
 
     // Get the default header names for a worksheet table. These are generally
