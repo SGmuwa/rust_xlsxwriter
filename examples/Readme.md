@@ -1150,6 +1150,10 @@ documentation and generally show how an individual function works.
 * `doc_pivot_table_set_data_source.rs` - Example of creating a pivot table
   and setting the data source.
 
+* `doc_pivot_table_set_field_items.rs` - Example of creating a pivot table
+  with the field items so that it can be displayed by applications that
+  don't refresh pivot tables.
+
 * `doc_pivot_table_set_field_names.rs` - Example of creating a pivot table
   and setting the field names explicitly. This is generally only required
   when the data source is on a worksheet in constant or low memory mode.

@@ -114,7 +114,9 @@ use crate::{ColNum, Format, RowNum, XlsxError};
 ///
 /// - Applications that don't refresh pivot tables when the file is opened will
 ///   show an empty pivot table. This also applies to pivot tables on protected
-///   worksheets.
+///   worksheets. Some of these applications, such as Google Sheets, display
+///   the pivot table as a `#REF!` error instead. They can display it if the
+///   field items are added to the file with [`PivotTable::set_field_items()`].
 /// - Excel will ask the end user to save the file even if no visible changes
 ///   were made.
 /// - The size of the pivot table isn't known until Excel builds it, so only
@@ -147,6 +149,8 @@ pub struct PivotTable {
     layout: PivotTableLayout,
     show_row_grand_totals: bool,
     show_column_grand_totals: bool,
+    pub(crate) field_items: bool,
+    pub(crate) field_item_counts: Vec<usize>,
 }
 
 impl PivotTable {
@@ -177,6 +181,8 @@ impl PivotTable {
             layout: PivotTableLayout::Compact,
             show_row_grand_totals: true,
             show_column_grand_totals: true,
+            field_items: false,
+            field_item_counts: vec![],
         }
     }
 
@@ -1107,6 +1113,114 @@ impl PivotTable {
         self
     }
 
+    /// Write the field items of the pivot table to the file, for applications
+    /// that don't refresh pivot tables.
+    ///
+    /// By default the pivot table is written without data and Excel builds it
+    /// from the source data when it opens the file, see the
+    /// [Limitations](PivotTable#limitations) section above. However, some
+    /// applications such as Google Sheets, or the file previewers of some
+    /// email clients, don't build the pivot table from the definition alone.
+    /// They need the unique values, or "items", of the fields used in the
+    /// pivot table and the range of cells that the pivot table occupies. If
+    /// these aren't in the file they display the pivot table as a `#REF!`
+    /// error.
+    ///
+    /// This method writes that information to the file:
+    ///
+    /// - The unique values of the row, column and filter fields are read from
+    ///   the source data when the workbook is saved and written to the pivot
+    ///   cache, in ascending order.
+    /// - The range of the pivot table is written as an estimate that is never
+    ///   smaller than the actual pivot table, since a smaller range is
+    ///   displayed as a `#REF!` error. The estimate is generally larger than
+    ///   the pivot table but Excel, and other applications, replace it with the
+    ///   actual range when they refresh the pivot table.
+    ///
+    /// Excel and LibreOffice don't need this information and refresh the
+    /// pivot table as before.
+    ///
+    /// Note, the source data must be written before the workbook is saved, and
+    /// formulas in the source data need a result set with
+    /// [`Formula::set_result()`](crate::Formula::set_result), otherwise they
+    /// are ignored. This option can't be used if the source data is on a
+    /// worksheet in [constant or low memory
+    /// mode](crate::performance#constant-memory-mode) since the data isn't
+    /// retained in memory.
+    ///
+    /// # Parameters
+    ///
+    /// - `enable`: Turn the property on/off. It is off by default.
+    ///
+    /// # Errors
+    ///
+    /// - [`XlsxError::PivotTableError`] - When the workbook is saved, if the
+    ///   source data is on a constant or low memory worksheet.
+    ///
+    /// # Examples
+    ///
+    /// Example of creating a pivot table with the field items so that it can be
+    /// displayed by applications that don't refresh pivot tables.
+    ///
+    /// ```
+    /// # // This code is available in examples/doc_pivot_table_set_field_items.rs
+    /// #
+    /// # use rust_xlsxwriter::{PivotTable, PivotTableValueField, Workbook, XlsxError};
+    /// #
+    /// # fn main() -> Result<(), XlsxError> {
+    /// #     // Create a new Excel file object.
+    /// #     let mut workbook = Workbook::new();
+    /// #
+    /// #     // Add a worksheet for the source data.
+    /// #     let worksheet = workbook.add_worksheet();
+    /// #
+    /// #     // Some sample data to summarize.
+    /// #     let data = [
+    /// #         ("East", "Apple", 9000, "July"),
+    /// #         ("West", "Pear", 5000, "July"),
+    /// #         ("North", "Apple", 3000, "August"),
+    /// #         ("East", "Grape", 8000, "August"),
+    /// #         ("West", "Apple", 6000, "September"),
+    /// #         ("North", "Pear", 4000, "September"),
+    /// #         ("East", "Pear", 7000, "October"),
+    /// #         ("South", "Grape", 2000, "October"),
+    /// #     ];
+    /// #
+    /// #     // Write the header row and the data.
+    /// #     worksheet.write_row(0, 0, ["Region", "Item", "Volume", "Month"])?;
+    /// #     for (row, (region, item, volume, month)) in data.iter().enumerate() {
+    /// #         let row = row as u32 + 1;
+    /// #         worksheet.write(row, 0, *region)?;
+    /// #         worksheet.write(row, 1, *item)?;
+    /// #         worksheet.write(row, 2, *volume)?;
+    /// #         worksheet.write(row, 3, *month)?;
+    /// #     }
+    /// #
+    ///     // Create a pivot table that sums the "Volume" by "Region" and "Item", and
+    ///     // write the field items for applications that don't refresh pivot tables.
+    ///     let pivot_table = PivotTable::new()
+    ///         .set_data_source("Sheet1!A1:D9")
+    ///         .add_row_field("Region")
+    ///         .add_column_field("Item")
+    ///         .add_value_field(&PivotTableValueField::new("Volume"))
+    ///         .set_field_items(true);
+    ///
+    ///     // Add a worksheet for the pivot table and add the pivot table to it.
+    ///     let worksheet = workbook.add_worksheet();
+    ///     worksheet.add_pivot_table(2, 0, &pivot_table)?;
+    /// #
+    /// #     // Save the file to disk.
+    /// #     workbook.save("pivot_table.xlsx")?;
+    /// #
+    /// #     Ok(())
+    /// # }
+    /// ```
+    ///
+    pub fn set_field_items(mut self, enable: bool) -> PivotTable {
+        self.field_items = enable;
+        self
+    }
+
     /// Set the field names of the pivot table source data.
     ///
     /// The field names of a pivot table are the header names of the columns in
@@ -1485,7 +1599,7 @@ impl PivotTable {
         let num_filters = self.filter_fields.len() as RowNum;
 
         let mut attributes = vec![
-            ("ref", utility::row_col_to_cell(self.body_row(), self.col)),
+            ("ref", self.location_range(first_data_row, first_data_col)),
             ("firstHeaderRow", first_header_row.to_string()),
             ("firstDataRow", first_data_row.to_string()),
             ("firstDataCol", first_data_col.to_string()),
@@ -1567,7 +1681,7 @@ impl PivotTable {
             xml_start_tag(&mut self.writer, "pivotField", &attributes);
 
             // Write the items element.
-            self.write_items();
+            self.write_items(index);
 
             xml_end_tag(&mut self.writer, "pivotField");
         } else {
@@ -1576,11 +1690,21 @@ impl PivotTable {
     }
 
     // Write the <items> element. The items are generated by Excel when the
-    // pivot table is refreshed so we only write the default item.
-    fn write_items(&mut self) {
-        let attributes = [("count", "1")];
+    // pivot table is refreshed so by default we only write the default item.
+    // If the unique values of the field are in the pivot cache, see
+    // PivotTable::set_field_items(), we also write an item for each of them,
+    // in the ascending order of the cache.
+    fn write_items(&mut self, index: usize) {
+        let count = self.field_item_counts.get(index).copied().unwrap_or(0);
+        let attributes = [("count", (count + 1).to_string())];
 
         xml_start_tag(&mut self.writer, "items", &attributes);
+
+        for item_index in 0..count {
+            // Write the item element.
+            let attributes = [("x", item_index.to_string())];
+            xml_empty_tag(&mut self.writer, "item", &attributes);
+        }
 
         // Write the item element.
         let attributes = [("t", "default")];
@@ -1747,6 +1871,80 @@ impl PivotTable {
         }
 
         xml_empty_tag(&mut self.writer, "dataField", &attributes);
+    }
+
+    // Get the range of the pivot table body for the <location> element. Excel
+    // only needs the first cell since it calculates the range when it
+    // refreshes the pivot table. However, applications that don't refresh the
+    // pivot table display it as a #REF! error if the range is smaller than the
+    // pivot table. So, with PivotTable::set_field_items(), we write an
+    // estimate of the range that is never smaller than the pivot table:
+    //
+    // - Rows: the header rows, at most one item or subtotal row for each row
+    //   field and each combination of row field items, and the grand total.
+    // - Columns: the row field columns, and a column for each value field and
+    //   each combination of column field items, subtotals and grand totals.
+    //
+    fn location_range(&self, first_data_row: usize, first_data_col: usize) -> String {
+        let first_row = self.body_row();
+        let first_col = self.col;
+
+        if !self.field_items
+            || (self.row_fields.is_empty()
+                && self.column_fields.is_empty()
+                && self.value_fields.is_empty())
+        {
+            return utility::row_col_to_cell(first_row, first_col);
+        }
+
+        let item_count = |name: &String| {
+            self.field_index(name)
+                .and_then(|index| self.field_item_counts.get(index))
+                .copied()
+                .unwrap_or(0)
+                .max(1)
+        };
+
+        let row_combinations = self
+            .row_fields
+            .iter()
+            .map(item_count)
+            .fold(1_usize, usize::saturating_mul)
+            .min(self.source.num_records() as usize);
+
+        let col_combinations = self
+            .column_fields
+            .iter()
+            .map(|name| item_count(name) + 1)
+            .fold(1_usize, usize::saturating_mul);
+
+        let num_rows = row_combinations
+            .saturating_mul(self.row_fields.len().max(1))
+            .saturating_add(first_data_row + 1);
+
+        let num_cols = col_combinations
+            .saturating_mul(self.value_fields.len().max(1))
+            .saturating_add(first_data_col);
+
+        let last_row = (first_row as usize)
+            .saturating_add(num_rows - 1)
+            .min(ROW_MAX as usize - 1) as RowNum;
+
+        let last_col = (first_col as usize)
+            .saturating_add(num_cols - 1)
+            .min(COL_MAX as usize - 1) as ColNum;
+
+        utility::cell_range(first_row, first_col, last_row, last_col)
+    }
+
+    // Get the source data indices of the row, column and filter fields.
+    pub(crate) fn axis_field_indices(&self) -> Vec<usize> {
+        self.row_fields
+            .iter()
+            .chain(&self.column_fields)
+            .chain(&self.filter_fields)
+            .filter_map(|name| self.field_index(name))
+            .collect()
     }
 
     // Get the first row of the pivot table body. The (row, col) position is the

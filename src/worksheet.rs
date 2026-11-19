@@ -1386,6 +1386,7 @@ use crate::drawing::{Drawing, DrawingCoordinates, DrawingInfo, DrawingObject, Dr
 use crate::error::XlsxError;
 use crate::format::Format;
 use crate::formula::Formula;
+use crate::pivot_cache::PivotFieldValue;
 use crate::pivot_table::PivotTableSource;
 use crate::shared_strings_table::SharedStringsTable;
 use crate::styles::Styles;
@@ -17828,6 +17829,61 @@ impl Worksheet {
         }
 
         Ok(headers)
+    }
+
+    // Get the unique values of a column of a pivot table data source, sorted in
+    // ascending order. Formulas without a user defined result are ignored since
+    // their value isn't known until Excel calculates them.
+    pub(crate) fn pivot_field_values(
+        &self,
+        first_row: RowNum,
+        last_row: RowNum,
+        col_num: ColNum,
+    ) -> Vec<PivotFieldValue> {
+        let mut values = vec![];
+
+        for row_num in first_row..=last_row {
+            let value = match self
+                .data_table
+                .get(&row_num)
+                .and_then(|columns| columns.get(&col_num))
+            {
+                Some(
+                    CellType::String { string, .. }
+                    | CellType::InlineString { string, .. }
+                    | CellType::RichString {
+                        raw_string: string, ..
+                    },
+                ) => PivotFieldValue::String(string.to_string()),
+
+                Some(CellType::Number { number, .. } | CellType::DateTime { number, .. }) => {
+                    PivotFieldValue::Number(*number)
+                }
+
+                Some(CellType::Boolean { boolean, .. }) => PivotFieldValue::Boolean(*boolean),
+
+                Some(CellType::Error { .. }) => continue,
+
+                Some(CellType::Formula { result, .. } | CellType::ArrayFormula { result, .. }) => {
+                    if result.is_empty() || *result == self.default_result {
+                        continue;
+                    }
+
+                    match result.parse::<f64>() {
+                        Ok(number) => PivotFieldValue::Number(number),
+                        Err(_) => PivotFieldValue::String(result.to_string()),
+                    }
+                }
+
+                _ => PivotFieldValue::Blank,
+            };
+
+            values.push(value);
+        }
+
+        PivotFieldValue::sort_and_dedup(&mut values);
+
+        values
     }
 
     // Get the default header names for a worksheet table. These are generally

@@ -559,4 +559,144 @@ mod pivot_table_tests {
         let result = worksheet.add_pivot_table(20, 0, &pivot_table);
         assert!(matches!(result, Err(XlsxError::RowColumnLimitError)));
     }
+
+    // Save a workbook with the source data used in the field items tests and
+    // a pivot table, and return the pivot cache and pivot table XML.
+    fn field_items_xml(pivot_table: PivotTable) -> (String, String) {
+        use std::io::{Cursor, Read};
+
+        let mut workbook = Workbook::new();
+        let worksheet = workbook.add_worksheet();
+        worksheet
+            .write_row(0, 0, ["Region", "Item", "Volume", "Date"])
+            .unwrap();
+
+        let data = [
+            ("East", "Apple", 9000, Some(46001.5)),
+            ("West", "Pear", 5000, Some(46000.0)),
+            ("east", "Apple", 3000, None),
+            ("North", "Pear", 4000, Some(46000.0)),
+        ];
+
+        for (row, (region, item, volume, date)) in data.iter().enumerate() {
+            let row = row as u32 + 1;
+            worksheet.write(row, 0, *region).unwrap();
+            worksheet.write(row, 1, *item).unwrap();
+            worksheet.write(row, 2, *volume).unwrap();
+            if let Some(date) = date {
+                worksheet.write(row, 3, *date).unwrap();
+            }
+        }
+
+        let pivot_table = pivot_table.set_data_source(("Sheet1", 0, 0, 4, 3));
+        let worksheet = workbook.add_worksheet();
+        worksheet.add_pivot_table(2, 0, &pivot_table).unwrap();
+
+        let buffer = workbook.save_to_buffer().unwrap();
+        let mut zip = zip::ZipArchive::new(Cursor::new(buffer)).unwrap();
+
+        let mut read = |name: &str| {
+            let mut xml = String::new();
+            zip.by_name(name).unwrap().read_to_string(&mut xml).unwrap();
+            xml
+        };
+
+        (
+            read("xl/pivotCache/pivotCacheDefinition1.xml"),
+            read("xl/pivotTables/pivotTable1.xml"),
+        )
+    }
+
+    #[test]
+    fn test_field_items_off() {
+        // Check that the field items aren't written by default.
+        let (cache, table) = field_items_xml(
+            PivotTable::new()
+                .add_row_field("Region")
+                .add_value_field(&PivotTableValueField::new("Volume")),
+        );
+
+        assert!(!cache.contains("<s v="));
+        assert!(table.contains(r#"<location ref="A3" "#));
+        assert!(table.contains(r#"<items count="1"><item t="default"/></items>"#));
+    }
+
+    #[test]
+    fn test_field_items() {
+        let (cache, table) = field_items_xml(
+            PivotTable::new()
+                .add_row_field("Region")
+                .add_column_field("Date")
+                .add_value_field(&PivotTableValueField::new("Volume"))
+                .set_field_items(true),
+        );
+
+        // Check that the strings are unique ignoring case, like Excel, and are
+        // in ascending order.
+        assert!(cache.contains(concat!(
+            r#"<cacheField name="Region" numFmtId="0">"#,
+            r#"<sharedItems count="3"><s v="East"/><s v="North"/><s v="West"/></sharedItems>"#,
+        )));
+
+        // Check the attributes of a numeric field with a blank.
+        assert!(cache.contains(concat!(
+            r#"<sharedItems containsString="0" containsBlank="1" containsNumber="1" "#,
+            r#"minValue="46000" maxValue="46001.5" count="3">"#,
+            r#"<n v="46000"/><n v="46001.5"/><m/></sharedItems>"#,
+        )));
+
+        // Check that a field that isn't on an axis doesn't have values.
+        assert!(cache.contains(r#"<cacheField name="Volume" numFmtId="0"><sharedItems/>"#));
+
+        // Check the items of the row and column fields.
+        assert!(table.contains(concat!(
+            r#"<pivotField axis="axisRow" showAll="0"><items count="4">"#,
+            r#"<item x="0"/><item x="1"/><item x="2"/><item t="default"/></items>"#,
+        )));
+        assert!(table.contains(concat!(
+            r#"<pivotField axis="axisCol" showAll="0"><items count="4">"#,
+            r#"<item x="0"/><item x="1"/><item x="2"/><item t="default"/></items>"#,
+        )));
+
+        // Check the location range: 2 header rows, 3 regions and the grand
+        // total row, and the row field column, 3 dates, a subtotal and the
+        // grand total column.
+        assert!(table.contains(r#"<location ref="A3:E8" "#));
+    }
+
+    #[test]
+    fn test_field_items_integers() {
+        let (cache, _) = field_items_xml(
+            PivotTable::new()
+                .add_row_field("Volume")
+                .set_field_items(true),
+        );
+
+        assert!(cache.contains(concat!(
+            r#"<sharedItems containsSemiMixedTypes="0" containsString="0" "#,
+            r#"containsNumber="1" containsInteger="1" minValue="3000" maxValue="9000" count="4">"#,
+        )));
+    }
+
+    #[test]
+    #[cfg(feature = "constant_memory")]
+    fn test_field_items_constant_memory_source() {
+        // Check that the field items can't be read from a constant memory
+        // worksheet.
+        let mut workbook = Workbook::new();
+        let worksheet = workbook.add_worksheet_with_constant_memory().unwrap();
+        worksheet.write(0, 0, "Region").unwrap();
+        worksheet.write(1, 0, "East").unwrap();
+
+        let pivot_table = PivotTable::new()
+            .set_data_source(("Sheet1", 0, 0, 1, 0))
+            .set_field_names(&["Region"])
+            .add_row_field("Region")
+            .set_field_items(true);
+        let worksheet = workbook.add_worksheet();
+        worksheet.add_pivot_table(2, 0, &pivot_table).unwrap();
+
+        let result = workbook.save_to_buffer();
+        assert!(matches!(result, Err(XlsxError::PivotTableError(_))));
+    }
 }

@@ -3078,6 +3078,73 @@ impl Workbook {
             }
         }
 
+        drop(xf_indices);
+
+        // Add the unique values of the pivot table fields, if required.
+        self.prepare_pivot_field_items()
+    }
+
+    // Read the unique values of the pivot table fields that are used in the
+    // row, column and filter areas of pivot tables with the
+    // PivotTable::set_field_items() option, and add them to the pivot cache.
+    // The number of values of each field is passed back to all the pivot
+    // tables that use the cache so that they can write the field items.
+    fn prepare_pivot_field_items(&mut self) -> Result<(), XlsxError> {
+        let mut cache_fields: Vec<Vec<usize>> = vec![vec![]; self.pivot_caches.len()];
+
+        for worksheet in &self.worksheets {
+            for pivot_table in &worksheet.pivot_tables {
+                if pivot_table.field_items {
+                    cache_fields[pivot_table.cache_id as usize - 1]
+                        .extend(pivot_table.axis_field_indices());
+                }
+            }
+        }
+
+        for (pivot_cache, fields) in self.pivot_caches.iter_mut().zip(cache_fields) {
+            if fields.is_empty() {
+                continue;
+            }
+
+            let source = &pivot_cache.source;
+            let Some(worksheet) = self
+                .worksheets
+                .iter()
+                .find(|worksheet| worksheet.name == source.sheet_name)
+            else {
+                continue;
+            };
+
+            // The data of a constant memory worksheet has already been written
+            // to disk so the values can't be read.
+            if worksheet.use_constant_memory {
+                return Err(XlsxError::PivotTableError(format!(
+                    "PivotTable::set_field_items() can't be used with a constant_memory data source worksheet ('{}')",
+                    source.sheet_name
+                )));
+            }
+
+            let mut field_values = vec![vec![]; pivot_cache.field_names.len()];
+
+            for index in fields {
+                field_values[index] = worksheet.pivot_field_values(
+                    source.first_row + 1,
+                    source.last_row,
+                    source.first_col + index as ColNum,
+                );
+            }
+
+            pivot_cache.field_values = field_values;
+        }
+
+        for worksheet in &mut self.worksheets {
+            for pivot_table in &mut worksheet.pivot_tables {
+                let pivot_cache = &self.pivot_caches[pivot_table.cache_id as usize - 1];
+                pivot_table.field_item_counts =
+                    pivot_cache.field_values.iter().map(Vec::len).collect();
+            }
+        }
+
         Ok(())
     }
 
