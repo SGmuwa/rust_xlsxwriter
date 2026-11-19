@@ -114,9 +114,10 @@ use crate::{ColNum, Format, RowNum, XlsxError};
 ///
 /// - Applications that don't refresh pivot tables when the file is opened will
 ///   show an empty pivot table. This also applies to pivot tables on protected
-///   worksheets. Some of these applications, such as Google Sheets, display
-///   the pivot table as a `#REF!` error instead. They can display it if the
-///   field items are added to the file with [`PivotTable::set_field_items()`].
+///   worksheets. Some of these applications, such as the attachment previewers
+///   of some email clients, display the pivot table as a `#REF!` error
+///   instead. They can display it if the field items are added to the file
+///   with [`PivotTable::set_field_items()`].
 /// - Excel will ask the end user to save the file even if no visible changes
 ///   were made.
 /// - The size of the pivot table isn't known until Excel builds it, so only
@@ -1119,8 +1120,8 @@ impl PivotTable {
     /// By default the pivot table is written without data and Excel builds it
     /// from the source data when it opens the file, see the
     /// [Limitations](PivotTable#limitations) section above. However, some
-    /// applications such as Google Sheets, or the file previewers of some
-    /// email clients, don't build the pivot table from the definition alone.
+    /// applications, such as the attachment previewers of some email clients,
+    /// don't build the pivot table from the definition alone.
     /// They need the unique values, or "items", of the fields used in the
     /// pivot table and the range of cells that the pivot table occupies. If
     /// these aren't in the file they display the pivot table as a `#REF!`
