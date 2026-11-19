@@ -8,10 +8,12 @@
 mod pivot_table_tests {
 
     use crate::pivot_table::parse_source_range;
+    use crate::test_functions::xml_to_vec;
     use crate::worksheet::{COL_MAX, ROW_MAX};
+    use crate::xmlwriter;
     use crate::{
-        Chart, ChartType, Format, Formula, PivotTable, PivotTableValueField, Table, Workbook,
-        Worksheet, XlsxError,
+        Chart, ChartType, Format, Formula, PivotTable, PivotTableLayout, PivotTableValueField,
+        Table, Workbook, Worksheet, XlsxError,
     };
 
     #[test]
@@ -558,5 +560,147 @@ mod pivot_table_tests {
 
         let result = worksheet.add_pivot_table(20, 0, &pivot_table);
         assert!(matches!(result, Err(XlsxError::RowColumnLimitError)));
+    }
+
+    #[test]
+    fn test_validate_field_subtotals() {
+        let mut worksheet = Worksheet::new();
+
+        // Check that the subtotals can only be turned off for a row or column
+        // field.
+        let pivot_table = PivotTable::new()
+            .set_data_source(("Sheet1", 0, 0, 50, 3))
+            .add_row_field("Region")
+            .add_filter_field("Month")
+            .set_field_subtotals("Month", false);
+
+        let result = worksheet.add_pivot_table(2, 0, &pivot_table);
+        assert!(matches!(result, Err(XlsxError::PivotTableError(_))));
+
+        let pivot_table = PivotTable::new()
+            .set_data_source(("Sheet1", 0, 0, 50, 3))
+            .add_row_field("Region")
+            .set_field_subtotals("Legion", false);
+
+        let result = worksheet.add_pivot_table(2, 0, &pivot_table);
+        assert!(matches!(result, Err(XlsxError::PivotTableError(_))));
+
+        // Check that turning the subtotals back on removes the field.
+        let pivot_table = PivotTable::new()
+            .set_data_source(("Sheet1", 0, 0, 50, 3))
+            .add_row_field("Region")
+            .set_field_subtotals("Month", false)
+            .set_field_subtotals("Month", true);
+
+        let result = worksheet.add_pivot_table(2, 0, &pivot_table);
+        assert!(result.is_ok());
+
+        // Check row and column fields.
+        let mut worksheet = Worksheet::new();
+        let pivot_table = PivotTable::new()
+            .set_data_source(("Sheet1", 0, 0, 50, 3))
+            .add_row_field("Region")
+            .add_column_field("Item")
+            .set_field_subtotals("Region", false)
+            .set_field_subtotals("Item", false);
+
+        let result = worksheet.add_pivot_table(2, 0, &pivot_table);
+        assert!(result.is_ok());
+    }
+
+    // Get the <pivotField> elements of a pivot table with the source fields
+    // "Region", "Item", "Volume" and "Month".
+    fn pivot_fields(pivot_table: PivotTable) -> Vec<String> {
+        let mut pivot_table = pivot_table.set_data_source(("Sheet1", 0, 0, 50, 3));
+        pivot_table.field_names = ["Region", "Item", "Volume", "Month"]
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+
+        pivot_table.assemble_xml_file();
+
+        let got = xmlwriter::cursor_to_str(&pivot_table.writer);
+        let got = xml_to_vec(got);
+
+        let start = got
+            .iter()
+            .position(|tag| tag.starts_with("<pivotFields"))
+            .unwrap();
+        let end = got.iter().position(|tag| tag == "</pivotFields>").unwrap();
+
+        got[start + 1..end].to_vec()
+    }
+
+    #[test]
+    fn test_assemble_subtotals() {
+        let pivot_table = PivotTable::new()
+            .add_row_field("Region")
+            .add_row_field("Item")
+            .add_column_field("Month")
+            .add_value_field(&PivotTableValueField::new("Volume"));
+
+        // The subtotals are on by default.
+        let expected = xml_to_vec(
+            r#"
+            <pivotField axis="axisRow" showAll="0">
+              <items count="1">
+                <item t="default"/>
+              </items>
+            </pivotField>
+            <pivotField axis="axisRow" showAll="0">
+              <items count="1">
+                <item t="default"/>
+              </items>
+            </pivotField>
+            <pivotField dataField="1" showAll="0"/>
+            <pivotField axis="axisCol" showAll="0">
+              <items count="1">
+                <item t="default"/>
+              </items>
+            </pivotField>
+            "#,
+        );
+
+        assert_eq!(expected, pivot_fields(pivot_table.clone()));
+
+        // Turn off the subtotals for all the row and column fields.
+        let expected = xml_to_vec(
+            r#"
+            <pivotField axis="axisRow" showAll="0" defaultSubtotal="0"/>
+            <pivotField axis="axisRow" showAll="0" defaultSubtotal="0"/>
+            <pivotField dataField="1" showAll="0"/>
+            <pivotField axis="axisCol" showAll="0" defaultSubtotal="0"/>
+            "#,
+        );
+
+        assert_eq!(
+            expected,
+            pivot_fields(pivot_table.clone().set_subtotals(false))
+        );
+
+        // Turn off the subtotals for one field, with the Tabular layout
+        // attributes before them.
+        let expected = xml_to_vec(
+            r#"
+            <pivotField axis="axisRow" compact="0" outline="0" showAll="0">
+              <items count="1">
+                <item t="default"/>
+              </items>
+            </pivotField>
+            <pivotField axis="axisRow" compact="0" outline="0" showAll="0" defaultSubtotal="0"/>
+            <pivotField dataField="1" compact="0" outline="0" showAll="0"/>
+            <pivotField axis="axisCol" compact="0" outline="0" showAll="0">
+              <items count="1">
+                <item t="default"/>
+              </items>
+            </pivotField>
+            "#,
+        );
+
+        let pivot_table = pivot_table
+            .set_layout(PivotTableLayout::Tabular)
+            .set_field_subtotals("Item", false);
+
+        assert_eq!(expected, pivot_fields(pivot_table));
     }
 }

@@ -1154,6 +1154,10 @@ documentation and generally show how an individual function works.
   and setting the field names explicitly. This is generally only required
   when the data source is on a worksheet in constant or low memory mode.
 
+* `doc_pivot_table_set_field_subtotals.rs` - Example of creating a pivot
+  table with three row fields and turning off the subtotals of the second
+  field only.
+
 * `doc_pivot_table_set_grand_totals.rs` - Example of creating a pivot table
   and turning off the row and column grand totals.
 
@@ -1166,6 +1170,9 @@ documentation and generally show how an individual function works.
 
 * `doc_pivot_table_set_style.rs` - Example of creating a pivot table and
   setting its style.
+
+* `doc_pivot_table_set_subtotals.rs` - Example of creating a pivot table
+  with two row fields and turning off the subtotals.
 
 * `doc_pivot_table_simple.rs` - Example of creating a simple pivot table.
 

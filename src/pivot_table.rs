@@ -147,6 +147,8 @@ pub struct PivotTable {
     layout: PivotTableLayout,
     show_row_grand_totals: bool,
     show_column_grand_totals: bool,
+    show_subtotals: bool,
+    hidden_subtotal_fields: Vec<String>,
 }
 
 impl PivotTable {
@@ -177,6 +179,8 @@ impl PivotTable {
             layout: PivotTableLayout::Compact,
             show_row_grand_totals: true,
             show_column_grand_totals: true,
+            show_subtotals: true,
+            hidden_subtotal_fields: vec![],
         }
     }
 
@@ -1107,6 +1111,180 @@ impl PivotTable {
         self
     }
 
+    /// Turn on/off the subtotals for all the row and column fields of the
+    /// pivot table.
+    ///
+    /// When a pivot table has more than one row field, or more than one column
+    /// field, Excel adds a subtotal for each item of the outer fields. For
+    /// example, a pivot table with "Region" and "Item" row fields shows a
+    /// "Total" row for each region after, or above, the items in that region.
+    /// The subtotals are on by default.
+    ///
+    /// In Excel this is the "Do Not Show Subtotals" option of the "Subtotals"
+    /// menu in the "PivotTable Design" tab. The subtotals of an individual
+    /// field can be turned off with [`PivotTable::set_field_subtotals()`].
+    ///
+    /// # Parameters
+    ///
+    /// - `enable`: Turn the property on/off. It is on by default.
+    ///
+    /// # Examples
+    ///
+    /// Example of creating a pivot table with two row fields and turning off the
+    /// subtotals.
+    ///
+    /// ```
+    /// # // This code is available in examples/doc_pivot_table_set_subtotals.rs
+    /// #
+    /// # use rust_xlsxwriter::{PivotTable, PivotTableLayout, PivotTableValueField, Workbook, XlsxError};
+    /// #
+    /// # fn main() -> Result<(), XlsxError> {
+    /// #     // Create a new Excel file object.
+    /// #     let mut workbook = Workbook::new();
+    /// #
+    /// #     // Add a worksheet for the source data.
+    /// #     let worksheet = workbook.add_worksheet();
+    /// #
+    /// #     // Some sample data to summarize.
+    /// #     let data = [
+    /// #         ("East", "Apple", 9000, "July"),
+    /// #         ("West", "Pear", 5000, "July"),
+    /// #         ("North", "Apple", 3000, "August"),
+    /// #         ("East", "Grape", 8000, "August"),
+    /// #         ("West", "Apple", 6000, "September"),
+    /// #         ("North", "Pear", 4000, "September"),
+    /// #         ("East", "Pear", 7000, "October"),
+    /// #         ("South", "Grape", 2000, "October"),
+    /// #     ];
+    /// #
+    /// #     // Write the header row and the data.
+    /// #     worksheet.write_row(0, 0, ["Region", "Item", "Volume", "Month"])?;
+    /// #     for (row, (region, item, volume, month)) in data.iter().enumerate() {
+    /// #         let row = row as u32 + 1;
+    /// #         worksheet.write(row, 0, *region)?;
+    /// #         worksheet.write(row, 1, *item)?;
+    /// #         worksheet.write(row, 2, *volume)?;
+    /// #         worksheet.write(row, 3, *month)?;
+    /// #     }
+    /// #
+    ///     // Create a pivot table that sums the "Volume" by "Region" and "Item",
+    ///     // without the subtotal for each region.
+    ///     let pivot_table = PivotTable::new()
+    ///         .set_data_source("Sheet1!A1:D9")
+    ///         .add_row_field("Region")
+    ///         .add_row_field("Item")
+    ///         .add_value_field(&PivotTableValueField::new("Volume"))
+    ///         .set_layout(PivotTableLayout::Tabular)
+    ///         .set_subtotals(false);
+    ///
+    ///     // Add a worksheet for the pivot table and add the pivot table to it.
+    ///     let worksheet = workbook.add_worksheet();
+    ///     worksheet.add_pivot_table(2, 0, &pivot_table)?;
+    /// #
+    /// #     // Save the file to disk.
+    /// #     workbook.save("pivot_table.xlsx")?;
+    /// #
+    /// #     Ok(())
+    /// # }
+    /// ```
+    ///
+    pub fn set_subtotals(mut self, enable: bool) -> PivotTable {
+        self.show_subtotals = enable;
+        self
+    }
+
+    /// Turn off the subtotals for a row or column field of the pivot table.
+    ///
+    /// This is the field level version of [`PivotTable::set_subtotals()`]. It
+    /// turns off the subtotals of one field and leaves the subtotals of the
+    /// other fields unchanged.
+    ///
+    /// This is useful for a field that has a different value in each row of the
+    /// source data, such as a date, a time or an id. The subtotal of an item of
+    /// that field is the same as the item itself so each item would otherwise
+    /// be shown twice.
+    ///
+    /// In Excel this is the "None" option of the "Subtotals" section in the
+    /// "Field Settings" dialog of a field.
+    ///
+    /// # Parameters
+    ///
+    /// - `name`: The name of the field. This must be one of the row or column
+    ///   fields of the pivot table.
+    /// - `enable`: Turn the property on/off. It is on by default.
+    ///
+    /// # Examples
+    ///
+    /// Example of creating a pivot table with three row fields and turning off
+    /// the subtotals of the second field only.
+    ///
+    /// ```
+    /// # // This code is available in examples/doc_pivot_table_set_field_subtotals.rs
+    /// #
+    /// # use rust_xlsxwriter::{PivotTable, PivotTableLayout, PivotTableValueField, Workbook, XlsxError};
+    /// #
+    /// # fn main() -> Result<(), XlsxError> {
+    /// #     // Create a new Excel file object.
+    /// #     let mut workbook = Workbook::new();
+    /// #
+    /// #     // Add a worksheet for the source data.
+    /// #     let worksheet = workbook.add_worksheet();
+    /// #
+    /// #     // Some sample data to summarize.
+    /// #     let data = [
+    /// #         ("East", "Apple", 9000, "July"),
+    /// #         ("West", "Pear", 5000, "July"),
+    /// #         ("North", "Apple", 3000, "August"),
+    /// #         ("East", "Grape", 8000, "August"),
+    /// #         ("West", "Apple", 6000, "September"),
+    /// #         ("North", "Pear", 4000, "September"),
+    /// #         ("East", "Pear", 7000, "October"),
+    /// #         ("South", "Grape", 2000, "October"),
+    /// #     ];
+    /// #
+    /// #     // Write the header row and the data.
+    /// #     worksheet.write_row(0, 0, ["Region", "Item", "Volume", "Month"])?;
+    /// #     for (row, (region, item, volume, month)) in data.iter().enumerate() {
+    /// #         let row = row as u32 + 1;
+    /// #         worksheet.write(row, 0, *region)?;
+    /// #         worksheet.write(row, 1, *item)?;
+    /// #         worksheet.write(row, 2, *volume)?;
+    /// #         worksheet.write(row, 3, *month)?;
+    /// #     }
+    /// #
+    ///     // Create a pivot table that sums the "Volume" by "Region", "Item" and
+    ///     // "Month". The subtotals of each region are shown but the subtotals of
+    ///     // each item within a region are turned off.
+    ///     let pivot_table = PivotTable::new()
+    ///         .set_data_source("Sheet1!A1:D9")
+    ///         .add_row_field("Region")
+    ///         .add_row_field("Item")
+    ///         .add_row_field("Month")
+    ///         .add_value_field(&PivotTableValueField::new("Volume"))
+    ///         .set_layout(PivotTableLayout::Tabular)
+    ///         .set_field_subtotals("Item", false);
+    ///
+    ///     // Add a worksheet for the pivot table and add the pivot table to it.
+    ///     let worksheet = workbook.add_worksheet();
+    ///     worksheet.add_pivot_table(2, 0, &pivot_table)?;
+    /// #
+    /// #     // Save the file to disk.
+    /// #     workbook.save("pivot_table.xlsx")?;
+    /// #
+    /// #     Ok(())
+    /// # }
+    /// ```
+    ///
+    pub fn set_field_subtotals(mut self, name: &str, enable: bool) -> PivotTable {
+        self.hidden_subtotal_fields.retain(|field| field != name);
+
+        if !enable {
+            self.hidden_subtotal_fields.push(name.to_string());
+        }
+
+        self
+    }
+
     /// Set the field names of the pivot table source data.
     ///
     /// The field names of a pivot table are the header names of the columns in
@@ -1261,6 +1439,15 @@ impl PivotTable {
             }
 
             seen_names.push(name);
+        }
+
+        // Only the row and column fields have subtotals.
+        for name in &self.hidden_subtotal_fields {
+            if !self.row_fields.contains(name) && !self.column_fields.contains(name) {
+                return Err(XlsxError::PivotTableError(format!(
+                    "Field '{name}' in set_field_subtotals() isn't a row or column field"
+                )));
+            }
         }
 
         let value_names = self.value_field_names();
@@ -1563,7 +1750,13 @@ impl PivotTable {
 
         attributes.push(("showAll", "0"));
 
-        if is_row_field || is_column_field || is_filter_field {
+        // The default item is the field subtotal. When the subtotal is turned
+        // off there are no items left to write since the other items are
+        // generated by Excel when the pivot table is refreshed.
+        if (is_row_field || is_column_field) && !self.has_subtotals(index) {
+            attributes.push(("defaultSubtotal", "0"));
+            xml_empty_tag(&mut self.writer, "pivotField", &attributes);
+        } else if is_row_field || is_column_field || is_filter_field {
             xml_start_tag(&mut self.writer, "pivotField", &attributes);
 
             // Write the items element.
@@ -1803,6 +1996,15 @@ impl PivotTable {
         }
 
         names
+    }
+
+    // Check if the row or column field at a source index has subtotals.
+    fn has_subtotals(&self, index: usize) -> bool {
+        self.show_subtotals
+            && !self
+                .hidden_subtotal_fields
+                .iter()
+                .any(|name| self.field_index(name) == Some(index))
     }
 
     // Get the index of a field in the source data from its header name.
